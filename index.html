@@ -11,8 +11,8 @@
   <style>
     *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
     html,body{height:100%;background:#060A07;font-family:-apple-system,'PingFang SC','Helvetica Neue',sans-serif;overflow:hidden;user-select:none}
-    #app{max-width:430px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column;background:#060A07;overflow-x:hidden}
-    #root-scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column}
+    #app{max-width:430px;margin:0 auto;height:100vh;height:100dvh;display:flex;flex-direction:column;background:#060A07;overflow:hidden}
+    #root-scroll{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column}
     @keyframes blink{0%,100%{opacity:.2}50%{opacity:1}}
     @keyframes deal{from{opacity:0;transform:translateY(-22px) scale(.85)}to{opacity:1;transform:none}}
     @keyframes pop{from{opacity:0;transform:scale(.8)}to{opacity:1;transform:scale(1)}}
