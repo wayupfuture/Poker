@@ -16,7 +16,19 @@
   </style>
 </head>
 <body>
-  <div id="root"></div>
+  <div id="root">
+    <div style="min-height:100vh;background:#060A07;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;">
+      <div style="font-size:48px">🃏</div>
+      <div style="color:#B8943A;font-size:20px;font-weight:900;letter-spacing:3px;">POKER</div>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <div style="width:8px;height:8px;border-radius:50%;background:#B8943A;animation:ld .8s 0s infinite ease-in-out both;"></div>
+        <div style="width:8px;height:8px;border-radius:50%;background:#B8943A;animation:ld .8s .2s infinite ease-in-out both;"></div>
+        <div style="width:8px;height:8px;border-radius:50%;background:#B8943A;animation:ld .8s .4s infinite ease-in-out both;"></div>
+      </div>
+      <div style="color:#2A4A34;font-size:12px;letter-spacing:1px;">加载中...</div>
+    </div>
+  </div>
+  <style>@keyframes ld{0%,100%{opacity:.15;transform:scale(.7)}50%{opacity:1;transform:scale(1)}}</style>
 
   <!-- React 18 via CDN -->
 
