@@ -113,7 +113,7 @@ function evalHand(cards){
   if(cards.length<5){const vals=cards.map(c=>VAL_NUM[c.value]).sort((a,b)=>b-a);const vc={};vals.forEach(v=>vc[v]=(vc[v]||0)+1);if(Object.values(vc).includes(2)){const p=+Object.keys(vc).find(k=>vc[k]===2);return{r:1000+p,n:'一对',t:1}}return{r:vals[0],n:'高牌',t:0}}
   return combos(cards,5).reduce((b,c)=>{const s=score5(c);return s.r>b.r?s:b},{r:-1,n:'无牌',t:-1});
 }
-function calcEquity(myCards,comm,opponents=2,N=400){
+function calcEquity(myCards,comm,opponents=2,N=200){
   if(myCards.length<2)return 50;
   const rem=deckExcluding(myCards,comm);let wins=0,ties=0;
   for(let i=0;i<N;i++){const sh=shuffle(rem);let idx=0;const opp=Array.from({length:opponents},()=>[sh[idx++],sh[idx++]]);const board=[...comm];while(board.length<5)board.push(sh[idx++]);if(board.length!==5)continue;const my=evalHand([...myCards,...board]).r;const mx=Math.max(...opp.map(h=>evalHand([...h,...board]).r));if(my>mx)wins++;else if(my===mx)ties+=.5}
@@ -208,6 +208,7 @@ function makeAiDecision(ai,comm,pot,curBet){
 // ═══════════════════════════════════════
 // GAME STATE
 // ═══════════════════════════════════════
+let S_GEN = 0; // incremented each hand to cancel stale runOrbit calls
 const S = {
   phase:'lobby', playerCards:[], comm:[], pot:0, curBet:0, playerBet:0,
   playerChips:2000, playerFolded:false,
@@ -215,7 +216,7 @@ const S = {
   result:null, waiting:false, handNum:0, raiseAmt:60, raiseBtnLabel:null,
   tab:'analysis', equity:null, outs:null, nuts:null, betAdvice:null,
   dealerPos:0, currentPlayerPos:null, showCoach:true, aiDetail:null, handHistory:[],
-  deck:[], potActual:0, commActual:[], aisActual:[],
+  deck:[], animatedComm:new Set(), playerCardsDealt:false,
   orbit:{toAct:[],curBet:0,playerStreetBet:0,pFolded:false},
 };
 
@@ -296,7 +297,7 @@ function renderAiRow(){
 function renderFelt(){
   // Community cards
   document.getElementById('community-cards').innerHTML=
-    [0,1,2,3,4].map((i,idx)=>`<div class="${S.comm[i]?'deal':''}" style="animation-delay:${idx*.08}s">${cardHTML(S.comm[i]||null,'md')}</div>`).join('');
+    (()=>{const html=[0,1,2,3,4].map((i,idx)=>`<div class="${S.comm[i]&&!S.animatedComm.has(i)?'deal':''}" style="animation-delay:${idx*.08}s">${cardHTML(S.comm[i]||null,false,'md')}</div>`).join('');S.animatedComm=new Set([0,1,2,3,4].filter(i=>S.comm[i]));return html;})()
 
   // Pot badge
   document.getElementById('pot-badge').innerHTML=S.pot>0?
@@ -321,8 +322,8 @@ function renderPlayerHand(){
   ph.innerHTML=`
   <div style="margin:4px 10px 0;padding:10px 14px;background:#080D09;border:1.5px solid #0D1E0F;border-radius:16px;flex-shrink:0;display:flex;align-items:center;gap:12px">
     <div style="display:flex;gap:8px;flex-shrink:0">
-      ${S.playerCards.length>0?S.playerCards.map((c,i)=>`<div class="deal" style="animation-delay:${i*.1}s">${cardHTML(c,'md')}</div>`).join(''):
-        [0,1].map(()=>`<div style="width:54px;height:76px;border-radius:6px;border:1.5px dashed #0D1E0F;background:rgba(0,0,0,.15)"></div>`).join('')}
+      ${S.playerCards.length>0?S.playerCards.map((c,i)=>`<div class="${!S.playerCardsDealt?'deal':''}" style="animation-delay:${i*.1}s">${cardHTML(c,false,'md')}</div>`).join(''):
+        [0,1].map(()=>`<div style="width:54px;height:76px;border-radius:6px;border:1.5px dashed #0D1E0F;background:rgba(0,0,0,.15)"></div>`).join('')} ${S.playerCardsDealt=true,''}
     </div>
     <div style="flex:1;min-width:0">
       <div style="display:flex;align-items:center;gap:7px;margin-bottom:5px;flex-wrap:wrap">
@@ -475,7 +476,7 @@ function renderCoach(){
       const n=S.nuts;const handInfo2=S.playerCards.length>0?evalHand([...S.playerCards,...S.comm]):null;
       content=`
       <div style="margin-bottom:10px"><div style="color:#7a9a84;font-size:11px;margin-bottom:4px">当前桌面 Nuts</div><div style="color:#FFD700;font-weight:900;font-size:22px">${n.n}</div></div>
-      ${n.hand?.length>0?`<div style="margin-bottom:12px"><div style="color:#3a5a42;font-size:11px;margin-bottom:5px">达到 Nuts 的底牌示例</div><div style="display:flex;gap:5px">${n.hand.map(c=>cardHTML(c,'sm')).join('')}</div></div>`:''}
+      ${n.hand?.length>0?`<div style="margin-bottom:12px"><div style="color:#3a5a42;font-size:11px;margin-bottom:5px">达到 Nuts 的底牌示例</div><div style="display:flex;gap:5px">${n.hand.map(c=>cardHTML(c,false,'sm')).join('')}</div></div>`:''}
       ${handInfo2?`<div style="background:rgba(255,255,255,.025);border-radius:10px;padding:10px 12px;border:1px solid #0f2014">
         <div style="color:#7a9a84;font-size:11px;margin-bottom:7px">你 vs Nuts 差距</div>
         <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px"><span style="color:#ccddd4;font-weight:700">${handInfo2.n} <span style="color:#3a5a42;font-size:10px">你</span></span><span style="color:#FFD700;font-weight:700">${n.n} <span style="color:#3a5a42;font-size:10px">Nuts</span></span></div>
@@ -563,6 +564,7 @@ function rebuildAfterRaise(raiserSeat,ais,pFolded){
 
 async function runOrbit(){
   const orbit=S.orbit;
+  const myGen=S_GEN; // capture generation at start
   while(orbit.toAct.length>0){
     const pFolded=orbit.pFolded;const curAis=S.ais;
     const activeTotal=(pFolded?0:1)+curAis.filter(a=>!a.folded).length;
@@ -578,8 +580,9 @@ async function runOrbit(){
     S.ais[seat]={...ai,thinking:true};renderAiRow();
     const base={gpt4:280,gemini:750,llama:180,claude:580,grok:220}[ai.id]||400;
     await new Promise(r=>setTimeout(r,base+Math.random()*500));
-    let dec;try{dec=makeAiDecision(ai,S.comm,S.pot,orbit.curBet)}catch(e){dec={action:'call',amount:0,comment:'...'}}
-    let up={...ai,thinking:false};
+    if(S_GEN!==myGen){S.ais[seat]={...S.ais[seat],thinking:false};return;} // stale orbit - abort
+    let dec;try{dec=makeAiDecision(ai,S.comm,S.pot,orbit.curBet)}catch(e){dec={action:'call',amount:0,comment:'...',_why:'error'}}
+    let up={...S.ais[seat],thinking:false}; // use fresh S.ais[seat] state
     const streetName=S.comm.length===0?'pre':S.comm.length===3?'flop':S.comm.length===4?'turn':'river';
     const addLog=(action,why)=>[...(ai.decisionLog||[]),{street:streetName,action,why:why||''}].slice(-8);
 
@@ -613,11 +616,11 @@ function advanceStreet(){
   orbit.playerStreetBet=0;orbit.curBet=0;
   const cur=S.comm;
   if(cur.length===0){
-    const flop=S.deck.splice(0,3);S.comm=[...flop];S.phase='flop';
+    const flop=S.deck.splice(0,3);S.comm=[...flop];S.phase='flop';S.animatedComm=new Set();
   } else if(cur.length===3){
-    S.comm=[...cur,S.deck.shift()];S.phase='turn';
+    S.animatedComm=new Set([0,1,2]);S.comm=[...cur,S.deck.shift()];S.phase='turn';
   } else if(cur.length===4){
-    S.comm=[...cur,S.deck.shift()];S.phase='river';
+    S.animatedComm=new Set([0,1,2,3]);S.comm=[...cur,S.deck.shift()];S.phase='river';
   } else {doShowdown();return}
   orbit.toAct=buildActionOrder(S.dealerPos,false,S.ais,pFolded);
   updateAnalysis();renderAll();
@@ -628,11 +631,12 @@ function advanceStreet(){
 // START HAND
 // ═══════════════════════════════════════
 function startHand(){
+  S_GEN++; // cancel any in-flight runOrbit from previous hand
   const newDealer=(S.dealerPos+1)%6;S.dealerPos=newDealer;
   const sbSeat=(newDealer+1)%6,bbSeat=(newDealer+2)%6;
   const deck=shuffle(fullDeck());let idx=0;
   const pCards=[deck[idx++],deck[idx++]];
-  const chipMap=Object.fromEntries(S.ais.map(a=>[a.id,a.chips]));
+  const chipMap=Object.fromEntries(S.ais.map(a=>[a.id,a.chips<=0?1000:a.chips])); // respawn bankrupt AIs
   S.ais=AI_CONFIGS.map((cfg,i)=>{
     const isSB=i===sbSeat,isBB=i===bbSeat;
     const prev=chipMap[cfg.id]??cfg.chips;
@@ -643,12 +647,13 @@ function startHand(){
   if(PLAYER_SEAT===newDealer)playerPos='D';else if(PLAYER_SEAT===sbSeat)playerPos='SB';else if(PLAYER_SEAT===bbSeat)playerPos='BB';
   const playerIsSB=PLAYER_SEAT===sbSeat,playerIsBB=PLAYER_SEAT===bbSeat;
   const playerBlind=playerIsSB?SB:playerIsBB?BB:0;
+  if(S.playerChips<=0)S.playerChips=1000; // respawn bankrupt player
   S.deck=deck.slice(idx);S.handNum++;S.playerCards=pCards;S.comm=[];
   S.playerFolded=false;S.result=null;S.waiting=false;
   S.equity=null;S.outs=null;S.nuts=null;S.betAdvice=null;
-  S.tab='analysis';S.currentPlayerPos=playerPos;S.raiseBtnLabel=null;S.aiDetail=null;
+  S.tab='analysis';S.currentPlayerPos=playerPos;S.raiseBtnLabel=null;S.aiDetail=null;S.animatedComm=new Set();S.playerCardsDealt=false;
   S.pot=SB+BB;S.playerBet=playerBlind;S.curBet=BB;
-  S.playerChips-=playerBlind;S.phase='preflop';
+  S.playerChips=Math.max(0,S.playerChips-playerBlind);S.phase='preflop';
   S.orbit={toAct:buildActionOrder(newDealer,true,S.ais,false),curBet:BB,playerStreetBet:playerBlind,pFolded:false};
   updateAnalysis();renderAll();
   runOrbit();
@@ -662,7 +667,9 @@ async function onFold(){
   S.waiting=false;S.playerFolded=true;S.orbit.pFolded=true;
   S.orbit.toAct=S.orbit.toAct.filter(s=>s!==PLAYER_SEAT);
   renderAll();
-  if(S.ais.filter(a=>!a.folded).length<=1){doShowdown();return}
+  const stillActive=S.ais.filter(a=>!a.folded).length;
+  if(stillActive<=1){doShowdown();return}
+  if(S.orbit.toAct.length===0){advanceStreet();return}
   await runOrbit();
 }
 async function onCall(){
