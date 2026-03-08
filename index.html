@@ -60,11 +60,11 @@ const RED_SUITS = new Set(['♥','♦']);
 const SB=10, BB=20, PLAYER_SEAT=5;
 
 const AI_CONFIGS = [
-  {id:'gpt4',  name:'GPT-4o', emoji:'🤖',color:'#00D4AA',chips:1500},
-  {id:'gemini',name:'Gemini', emoji:'💫',color:'#4A9EFF',chips:1500},
-  {id:'llama', name:'Llama 3',emoji:'🦙',color:'#FF8C42',chips:1500},
-  {id:'claude',name:'Claude', emoji:'✦', color:'#CC88FF',chips:1500},
-  {id:'grok',  name:'Grok',   emoji:'⚡',color:'#FFD700',chips:1500},
+  {id:'gpt4',  name:'GPT-4o', emoji:'🤖',color:'#00D4AA',chips:3000},
+  {id:'gemini',name:'Gemini', emoji:'💫',color:'#4A9EFF',chips:3000},
+  {id:'llama', name:'Llama 3',emoji:'🦙',color:'#FF8C42',chips:3000},
+  {id:'claude',name:'Claude', emoji:'✦', color:'#CC88FF',chips:3000},
+  {id:'grok',  name:'Grok',   emoji:'⚡',color:'#FFD700',chips:3000},
 ];
 
 const PERSONAS = {
@@ -211,7 +211,7 @@ function makeAiDecision(ai,comm,pot,curBet){
 let S_GEN = 0; // incremented each hand to cancel stale runOrbit calls
 const S = {
   phase:'lobby', playerCards:[], comm:[], pot:0, curBet:0, playerBet:0,
-  playerChips:2000, playerFolded:false,
+  playerChips:3000, playerFolded:false,
   ais: AI_CONFIGS.map(a=>({...a,cards:[],bet:0,folded:false,thinking:false,lastAction:null,comment:'',showCards:false,pos:null,decisionLog:[]})),
   result:null, waiting:false, handNum:0, raiseAmt:60, raiseBtnLabel:null,
   tab:'analysis', equity:null, outs:null, nuts:null, betAdvice:null,
@@ -636,7 +636,7 @@ function startHand(){
   const sbSeat=(newDealer+1)%6,bbSeat=(newDealer+2)%6;
   const deck=shuffle(fullDeck());let idx=0;
   const pCards=[deck[idx++],deck[idx++]];
-  const chipMap=Object.fromEntries(S.ais.map(a=>[a.id,a.chips<=0?1000:a.chips])); // respawn bankrupt AIs
+  const chipMap=Object.fromEntries(S.ais.map(a=>[a.id,a.chips<=0?1500:a.chips])); // respawn bankrupt AIs
   S.ais=AI_CONFIGS.map((cfg,i)=>{
     const isSB=i===sbSeat,isBB=i===bbSeat;
     const prev=chipMap[cfg.id]??cfg.chips;
@@ -647,7 +647,7 @@ function startHand(){
   if(PLAYER_SEAT===newDealer)playerPos='D';else if(PLAYER_SEAT===sbSeat)playerPos='SB';else if(PLAYER_SEAT===bbSeat)playerPos='BB';
   const playerIsSB=PLAYER_SEAT===sbSeat,playerIsBB=PLAYER_SEAT===bbSeat;
   const playerBlind=playerIsSB?SB:playerIsBB?BB:0;
-  if(S.playerChips<=0)S.playerChips=1000; // respawn bankrupt player
+  if(S.playerChips<=0)S.playerChips=1500; // respawn bankrupt player
   S.deck=deck.slice(idx);S.handNum++;S.playerCards=pCards;S.comm=[];
   S.playerFolded=false;S.result=null;S.waiting=false;
   S.equity=null;S.outs=null;S.nuts=null;S.betAdvice=null;
