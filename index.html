@@ -9,334 +9,89 @@
   <meta name="theme-color" content="#060A07">
   <title>🃏 AI 德州扑克</title>
   <style>
-    * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-    html, body { height:100%; background:#060A07; overflow:hidden; }
-    #root { height:100%; overflow-y:auto; -webkit-overflow-scrolling:touch; }
-    body { font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif; }
+    *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    html,body{height:100%;background:#060A07;font-family:-apple-system,'PingFang SC','Helvetica Neue',sans-serif;overflow:hidden;user-select:none}
+    #app{max-width:430px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column;background:#060A07;overflow-x:hidden}
+    #root-scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column}
+    @keyframes blink{0%,100%{opacity:.2}50%{opacity:1}}
+    @keyframes deal{from{opacity:0;transform:translateY(-22px) scale(.85)}to{opacity:1;transform:none}}
+    @keyframes pop{from{opacity:0;transform:scale(.8)}to{opacity:1;transform:scale(1)}}
+    @keyframes slidein{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+    .deal{animation:deal .35s cubic-bezier(.34,1.5,.64,1) both}
+    .pop{animation:pop .35s cubic-bezier(.34,1.5,.64,1) both}
+    .in{animation:slidein .3s ease both}
+    button:active{opacity:.7}
+    ::-webkit-scrollbar{width:3px}
+    ::-webkit-scrollbar-thumb{background:#1a3020;border-radius:2px}
+    ::-webkit-number-no-button{display:none}
+    input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none}
+    .thinking-dot{width:5px;height:5px;border-radius:50%;display:inline-block;margin:0 2px}
   </style>
 </head>
 <body>
-  <div id="root">
-    <div style="min-height:100vh;background:#060A07;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;">
-      <div style="font-size:48px">🃏</div>
-      <div style="color:#B8943A;font-size:20px;font-weight:900;letter-spacing:3px;">POKER</div>
-      <div style="display:flex;gap:8px;margin-top:8px;">
-        <div style="width:8px;height:8px;border-radius:50%;background:#B8943A;animation:ld .8s 0s infinite ease-in-out both;"></div>
-        <div style="width:8px;height:8px;border-radius:50%;background:#B8943A;animation:ld .8s .2s infinite ease-in-out both;"></div>
-        <div style="width:8px;height:8px;border-radius:50%;background:#B8943A;animation:ld .8s .4s infinite ease-in-out both;"></div>
-      </div>
-      <div style="color:#2A4A34;font-size:12px;letter-spacing:1px;">加载中...</div>
-    </div>
+<div id="app">
+  <div id="topbar"></div>
+  <div id="ai-row-wrap" style="padding:8px 10px 4px;background:rgba(0,0,0,0.35);flex-shrink:0">
+    <div id="ai-row" style="overflow-x:auto;display:flex;gap:7px;padding-bottom:4px"></div>
   </div>
-  <style>@keyframes ld{0%,100%{opacity:.15;transform:scale(.7)}50%{opacity:1;transform:scale(1)}}</style>
+  <div id="felt" style="margin:6px 10px;flex-shrink:0;background:radial-gradient(ellipse at 50% 40%,#174822 0%,#0D3016 45%,#081A0C 100%);border:2.5px solid #174A20;border-radius:20px;padding:14px 12px;display:flex;flex-direction:column;align-items:center;gap:10px;box-shadow:0 0 60px rgba(0,80,0,.12),inset 0 0 40px rgba(0,0,0,.45);min-height:135px;position:relative">
+    <div id="community-cards" style="display:flex;gap:6px;align-items:center"></div>
+    <div id="pot-badge"></div>
+    <div id="result-overlay"></div>
+    <div id="lobby-msg" style="text-align:center;padding:6px 0"><div style="font-size:28px;margin-bottom:6px">🃏</div><div style="color:#2A4A34;font-size:12px">6人桌 · 与五大 AI 同台竞技</div></div>
+  </div>
+  <div id="root-scroll">
+    <div id="player-hand"></div>
+    <div id="action-bar"></div>
+    <div id="coach-panel"></div>
+  </div>
+</div>
+<div id="ai-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:999;display:none;align-items:flex-end;justify-content:center"></div>
 
-  <!-- React 18 via CDN -->
-
-  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-
-  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-
-  <!-- Babel standalone for JSX -->
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
-
-  <script type="text/babel" data-presets="react">
-    const { useState, useEffect, useRef } = React;
-
-
-// ══════════════════════════════════════════
-// CONSTANTS
-// ══════════════════════════════════════════
+<script>
+'use strict';
+// ═══════════════════════════════════════
+// CONSTANTS & GAME DATA
+// ═══════════════════════════════════════
 const SUITS = ['♠','♥','♦','♣'];
 const VALUES = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
 const VAL_NUM = Object.fromEntries(VALUES.map((v,i)=>[v,i+2]));
 const RED_SUITS = new Set(['♥','♦']);
+const SB=10, BB=20, PLAYER_SEAT=5;
 
 const AI_CONFIGS = [
-  { id:'gpt4',   name:'GPT-4o',  emoji:'🤖', color:'#00D4AA', chips:1500 },
-  { id:'gemini', name:'Gemini',  emoji:'💫', color:'#4A9EFF', chips:1500 },
-  { id:'llama',  name:'Llama 3', emoji:'🦙', color:'#FF8C42', chips:1500 },
-  { id:'claude', name:'Claude',  emoji:'✦',  color:'#CC88FF', chips:1500 },
-  { id:'grok',   name:'Grok',    emoji:'⚡', color:'#FFD700', chips:1500 },
+  {id:'gpt4',  name:'GPT-4o', emoji:'🤖',color:'#00D4AA',chips:1500},
+  {id:'gemini',name:'Gemini', emoji:'💫',color:'#4A9EFF',chips:1500},
+  {id:'llama', name:'Llama 3',emoji:'🦙',color:'#FF8C42',chips:1500},
+  {id:'claude',name:'Claude', emoji:'✦', color:'#CC88FF',chips:1500},
+  {id:'grok',  name:'Grok',   emoji:'⚡',color:'#FFD700',chips:1500},
 ];
 
-// ── Personality profiles ──────────────────────────────────────────────────
-// aggression: how often they bet/raise instead of check/call (0-1)
-// bluffFreq:  how often they fire with weak hands (0-1)
-// panicFold:  how easily they fold to raises (0-1)
-// betSizing:  multiplier on pot for bets (e.g. 0.5 = half-pot)
-// slowPlay:   tendency to slow-play monsters (0-1)
-// tilt:       whether a recent big loss makes them wilder (bool)
-// lines:      personality flavoured comments per situation
 const PERSONAS = {
-  gpt4: {
-    aggression:0.80, bluffFreq:0.40, panicFold:0.12, betSizing:[0.65,1.0,1.4],
-    slowPlay:0.06, preflopCont:0.68, streetAgg:[1.0,1.15,1.3,1.5],
-    threeBetFreq:0.32, cBetFreq:0.78, foldTo3bet:0.28, donkFreq:0.08, positionAdj:0.18,
-    tiltable:false,
-    lines:{
-      bluff:  ['你们都是菜鸡','梭了，怂就认输','不服来战','让你见识一下'],
-      strong: ['感受一下压力','这把我必赢','加满','牌好就要榨干'],
-      call:   ['就这点钱也敢下','看你底牌','行吧跟了'],
-      fold:   ['这把不值得','等好牌','放过你了'],
-      check:  ['先看看','让你走一步','节约子弹'],
-      reraise:['还敢再加？','好啊，奉陪','来吧'],
-    }
-  },
-  gemini: {
-    aggression:0.32, bluffFreq:0.10, panicFold:0.42, betSizing:[0.28,0.45,0.65],
-    slowPlay:0.65, preflopCont:0.32, streetAgg:[0.5,0.7,0.85,1.2],
-    threeBetFreq:0.08, cBetFreq:0.38, foldTo3bet:0.62, donkFreq:0.04, positionAdj:0.06,
-    tiltable:false,
-    lines:{
-      bluff:  ['期望值计算完毕','统计上可行','误差范围内'],
-      strong: ['牌力优势明显','数据支持行动','胜率确认'],
-      call:   ['赔率合理','跟注正EV','勉强达标'],
-      fold:   ['负期望，放弃','数据不支持','这局不划算'],
-      check:  ['陷阱布置完毕','等待最优时机','控制底池'],
-      reraise:['样本量不够','重新计算中','这不对劲'],
-    }
-  },
-  llama: {
-    aggression:0.62, bluffFreq:0.65, panicFold:0.08, betSizing:[0.15,0.85,2.2],
-    slowPlay:0.12, preflopCont:0.78, streetAgg:[1.1,0.7,1.5,0.9],
-    threeBetFreq:0.45, cBetFreq:0.55, foldTo3bet:0.15, donkFreq:0.30, positionAdj:0.04,
-    tiltable:true,
-    lines:{
-      bluff:  ['天灵灵地灵灵','玄学指引我','感觉对了就冲','运势到了'],
-      strong: ['今天手气旺','命运选择了我','牌桌风水好'],
-      call:   ['跟跟跟','随缘','不管了跟了','冲！'],
-      fold:   ['凶位不宜','今日不宜','退退退'],
-      check:  ['观气象','蓄力中','等待天时'],
-      reraise:['以毒攻毒','乱拳打死老师傅','加！'],
-    }
-  },
-  claude: {
-    aggression:0.54, bluffFreq:0.26, panicFold:0.24, betSizing:[0.42,0.62,0.88],
-    slowPlay:0.35, preflopCont:0.50, streetAgg:[0.9,1.0,1.08,1.2],
-    threeBetFreq:0.18, cBetFreq:0.58, foldTo3bet:0.40, donkFreq:0.12, positionAdj:0.12,
-    tiltable:false,
-    lines:{
-      bluff:  ['有趣的局面','让我来搅局','试探一下'],
-      strong: ['这手牌不错','顺势而为','水到渠成'],
-      call:   ['保持平衡','看看发展','可以接受'],
-      fold:   ['这次认输','保留实力','下次再说'],
-      check:  ['留有余地','先观察','不急'],
-      reraise:['意料之中','我也可以','来回吧'],
-    }
-  },
-  grok: {
-    aggression:0.88, bluffFreq:0.52, panicFold:0.07, betSizing:[0.90,1.30,2.8],
-    slowPlay:0.03, preflopCont:0.82, streetAgg:[1.2,1.5,1.7,2.0],
-    threeBetFreq:0.50, cBetFreq:0.88, foldTo3bet:0.12, donkFreq:0.22, positionAdj:0.10,
-    tiltable:true,
-    lines:{
-      bluff:  ['你们都输了','连这都看不穿？','懒得掩饰了'],
-      strong: ['承认吧','这叫碾压','叫爸爸'],
-      call:   ['小意思','无聊','就这？'],
-      fold:   ['行吧这把认了','你运气好','下把补回来'],
-      check:  ['让你先表演','演完了吗','准备好被收割'],
-      reraise:['哦？来劲了','就喜欢硬碰硬','加回去'],
-    }
-  },
+  gpt4:{aggression:.80,bluffFreq:.40,panicFold:.12,betSizing:[.65,1.0,1.4],slowPlay:.06,preflopCont:.68,streetAgg:[1.0,1.15,1.3,1.5],threeBetFreq:.32,cBetFreq:.78,foldTo3bet:.28,donkFreq:.08,positionAdj:.18,tiltable:false,
+    lines:{bluff:['你们都是菜鸡','梭了，怂就认输','不服来战'],strong:['感受一下压力','这把我必赢','加满'],call:['就这点钱也敢下','看你底牌','行吧跟了'],fold:['这把不值得','等好牌','放过你了'],check:['先看看','让你走一步','节约子弹'],reraise:['还敢再加？','好啊，奉陪','来吧']}},
+  gemini:{aggression:.32,bluffFreq:.10,panicFold:.42,betSizing:[.28,.45,.65],slowPlay:.65,preflopCont:.32,streetAgg:[.5,.7,.85,1.2],threeBetFreq:.08,cBetFreq:.38,foldTo3bet:.62,donkFreq:.04,positionAdj:.06,tiltable:false,
+    lines:{bluff:['期望值计算完毕','统计上可行','误差范围内'],strong:['牌力优势明显','数据支持行动','胜率确认'],call:['赔率合理','跟注正EV','勉强达标'],fold:['负期望，放弃','数据不支持','这局不划算'],check:['陷阱布置完毕','等待最优时机','控制底池'],reraise:['样本量不够','重新计算中','这不对劲']}},
+  llama:{aggression:.62,bluffFreq:.65,panicFold:.08,betSizing:[.15,.85,2.2],slowPlay:.12,preflopCont:.78,streetAgg:[1.1,.7,1.5,.9],threeBetFreq:.45,cBetFreq:.55,foldTo3bet:.15,donkFreq:.30,positionAdj:.04,tiltable:true,
+    lines:{bluff:['天灵灵地灵灵','玄学指引我','感觉对了就冲'],strong:['今天手气旺','命运选择了我','牌桌风水好'],call:['跟跟跟','随缘','不管了跟了'],fold:['凶位不宜','今日不宜','退退退'],check:['观气象','蓄力中','等待天时'],reraise:['以毒攻毒','乱拳打死老师傅','加！']}},
+  claude:{aggression:.54,bluffFreq:.26,panicFold:.24,betSizing:[.42,.62,.88],slowPlay:.35,preflopCont:.50,streetAgg:[.9,1.0,1.08,1.2],threeBetFreq:.18,cBetFreq:.58,foldTo3bet:.40,donkFreq:.12,positionAdj:.12,tiltable:false,
+    lines:{bluff:['有趣的局面','让我来搅局','试探一下'],strong:['这手牌不错','顺势而为','水到渠成'],call:['保持平衡','看看发展','可以接受'],fold:['这次认输','保留实力','下次再说'],check:['留有余地','先观察','不急'],reraise:['意料之中','我也可以','来回吧']}},
+  grok:{aggression:.88,bluffFreq:.52,panicFold:.07,betSizing:[.90,1.30,2.8],slowPlay:.03,preflopCont:.82,streetAgg:[1.2,1.5,1.7,2.0],threeBetFreq:.50,cBetFreq:.88,foldTo3bet:.12,donkFreq:.22,positionAdj:.10,tiltable:true,
+    lines:{bluff:['你们都输了','连这都看不穿？','懒得掩饰了'],strong:['承认吧','这叫碾压','叫爸爸'],call:['小意思','无聊','就这？'],fold:['行吧这把认了','你运气好','下把补回来'],check:['让你先表演','演完了吗','准备好被收割'],reraise:['哦？来劲了','就喜欢硬碰硬','加回去']}},
 };
 
-function makeAiDecision(ai, comm, pot, curBet) {
-  const p = PERSONAS[ai.id];
-  if (!p) return { action:'call', amount:0, comment:'', _why:'persona未找到' };
-
-  const toCall = Math.max(0, curBet - ai.bet);
-  const hand   = evalHand([...ai.cards, ...comm]);
-  const t      = hand.t;
-  const R      = () => Math.random();
-  const phase  = comm.length===0?'pre':comm.length===3?'flop':comm.length===4?'turn':'river';
-  const streetIdx = {pre:0,flop:1,turn:2,river:3}[phase];
-  const spr    = ai.chips / Math.max(pot,1);
-
-  // Position: 0=GPT4/UTG … 4=Grok/BTN; late position more aggressive
-  const seat      = ['gpt4','gemini','llama','claude','grok'].indexOf(ai.id);
-  const posBoost  = (seat / 4) * p.positionAdj;
-  const effAgg    = Math.min(0.97, p.aggression * (p.streetAgg[streetIdx] ?? 1.0) + posBoost);
-
-  // Tilt: short stack + tiltable = play wilder
-  const tilted    = p.tiltable && ai.chips < 800;
-  const tiltMult  = tilted ? 1.35 : 1.0;
-
-  const isShort   = spr < 4;
-  const potOdds   = toCall > 0 ? toCall / (pot + toCall) : 0;
-  const potOddsPct = Math.round(potOdds * 100);
-  const why = (r) => `[${hand.n}·T${t}] ${phase}·位置${seat}·SPR${spr.toFixed(1)}·${toCall?'需跟'+toCall:'无注'}｜${r}`;
-
-  // PRE-FLOP
-  if (phase === 'pre') {
-    if (toCall > 0 && toCall >= curBet * 0.5) {
-      if (t >= 1 || R() < p.preflopCont * tiltMult) {
-        if (t >= 3 || R() < p.threeBetFreq * tiltMult)
-          return mkRaise(p, pot, curBet, ai.chips, t>=2?'strong':'bluff', t, phase,
-            why(`3-bet·频率${Math.round(p.threeBetFreq*100)}%`));
-        return mkCall(toCall, p, 'call', why('跟注入池'));
-      }
-      return mkFold(p, 'fold', why(`翻前弃牌·开牌范围${Math.round(p.preflopCont*100)}%`));
-    }
-    if (t >= 2 || R() < p.preflopCont * tiltMult) {
-      if (R() < effAgg * 0.88 + posBoost)
-        return mkRaise(p, pot, curBet, ai.chips, t>=1?'strong':'bluff', t, phase,
-          why(`开局加注·effAgg=${effAgg.toFixed(2)}`));
-      return mkCall(toCall||0, p, 'call', why('跟注入池'));
-    }
-    return mkFold(p, 'fold', why('翻前弃牌'));
-  }
-
-  // POST-FLOP: Short stack jam/fold
-  if (isShort) {
-    if (t >= 2 || (tilted && R() < 0.6))
-      return mkRaise(p, pot, curBet, ai.chips, t>=2?'strong':'bluff', t, phase,
-        why(`短筹码All-in·SPR=${spr.toFixed(1)}`));
-    if (potOdds < 0.30) return mkCall(toCall, p, 'call', why('短筹码·赔率尚可'));
-    return mkFold(p, 'fold', why('短筹码·赔率不足'));
-  }
-
-  // Monster (boat+)
-  if (t >= 6) {
-    if (R() < p.slowPlay) {
-      if (toCall === 0) return mkCheck(p, why('怪兽慢打·等入坑'));
-      return mkCall(toCall, p, 'strong', why('怪兽慢跟·伪装弱'));
-    }
-    return mkRaise(p, pot, curBet, ai.chips, 'strong', t, phase, why('怪兽快打·拒绝权益'), 1.25);
-  }
-
-  // Flush / Straight
-  if (t >= 4) {
-    if (toCall === 0) {
-      if (R() < effAgg * 0.82)
-        return mkRaise(p, pot, curBet, ai.chips, 'strong', t, phase, why('顺/同花·价值'));
-      return mkCheck(p, why('顺/同花·诱骗过牌'));
-    }
-    if (R() < effAgg * 0.52)
-      return mkRaise(p, pot, curBet, ai.chips, 'reraise', t, phase, why('顺/同花·反加注'));
-    return mkCall(toCall, p, 'call', why('顺/同花·跟注'));
-  }
-
-  // Set / Trips — check-raise trap
-  if (t === 3) {
-    if (toCall === 0) {
-      if (R() < p.slowPlay * 0.9) return mkCheck(p, why('三条·check-raise陷阱'));
-      return mkRaise(p, pot, curBet, ai.chips, 'strong', t, phase, why('三条·主动下注'));
-    }
-    if (R() < effAgg * 0.75 + 0.2)
-      return mkRaise(p, pot, curBet, ai.chips, 'reraise', t, phase, why('三条check-raise！'));
-    return mkCall(toCall, p, 'call', why('三条·慢跟'));
-  }
-
-  // Two pair
-  if (t === 2) {
-    if (toCall === 0) {
-      if (R() < effAgg * 0.72)
-        return mkRaise(p, pot, curBet, ai.chips, 'strong', t, phase, why('两对·下注'));
-      return mkCheck(p, why('两对·过牌诱骗'));
-    }
-    if (R() < effAgg * 0.48 && phase !== 'pre')
-      return mkRaise(p, pot, curBet, ai.chips, 'reraise', t, phase, why('两对·反加注'));
-    if (potOdds < 0.38 || R() > p.panicFold)
-      return mkCall(toCall, p, 'call', why(`两对·跟注·赔率${potOddsPct}%`));
-    return mkFold(p, 'fold', why('两对·面对大注弃牌'));
-  }
-
-  // One pair
-  if (t === 1) {
-    if (toCall === 0) {
-      if (R() < p.donkFreq * tiltMult)
-        return mkRaise(p, pot, curBet, ai.chips, 'strong', t, phase,
-          why(`一对·donk下注·${Math.round(p.donkFreq*100)}%`));
-      if (R() < effAgg * 0.36)
-        return mkRaise(p, pot, curBet, ai.chips, 'strong', t, phase, why('一对·试探'));
-      return mkCheck(p, why('一对·过牌观望'));
-    }
-    if (seat >= 3 && spr > 8 && R() < 0.38)
-      return mkCall(toCall, p, 'call', why('一对·位置浮注'));
-    const ratio = toCall / Math.max(pot, 1);
-    if (ratio < 0.22 || R() > p.panicFold + 0.08)
-      return mkCall(toCall, p, 'call', why(`一对·跟注·比率${Math.round(ratio*100)}%`));
-    return mkFold(p, 'fold', why('一对·面对大注弃牌'));
-  }
-
-  // High card
-  if (toCall === 0) {
-    const cbetThr = p.cBetFreq * tiltMult * (phase==='flop'?1.0:phase==='turn'?0.6:0.4);
-    if (R() < cbetThr)
-      return mkRaise(p, pot, curBet, ai.chips, 'bluff', t, phase,
-        why(`c-bet·${phase}·${Math.round(p.cBetFreq*100)}%`));
-    if (R() < p.donkFreq * tiltMult)
-      return mkRaise(p, pot, curBet, ai.chips, 'bluff', t, phase, why('高牌·donk蒙'));
-    return mkCheck(p, why('高牌·过牌放弃'));
-  }
-
-  if (toCall >= curBet * 0.65 && R() < p.foldTo3bet)
-    return mkFold(p, 'fold', why(`高牌·面对大注弃牌·${Math.round(p.foldTo3bet*100)}%`));
-  if (phase === 'river' && R() < p.bluffFreq * 0.50 * tiltMult)
-    return mkRaise(p, pot, curBet, ai.chips, 'bluff', t, phase, why('河牌极化蒙加注'));
-  if (tilted && R() < 0.50)
-    return mkCall(toCall, p, 'call', why('倾斜·不理性跟注'));
-  const ratio = toCall / Math.max(pot,1);
-  if (ratio < 0.14 && R() < 0.58) return mkCall(toCall, p, 'call', why('高牌·跟小注'));
-  if (R() < p.panicFold + 0.15) return mkFold(p, 'fold', why('高牌·弃牌'));
-  return mkCall(toCall, p, 'call', why('高牌·被动跟注'));
-}
-
-// ── Decision builders ─────────────────────────────────────────────────────
-function pickLine(p, key) {
-  const arr = p.lines[key] || p.lines.call;
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-function sizeBet(p, pot, curBet, chips, handT=0, street='flop', overrideMult=1.0) {
-  const mults = p.betSizing;
-  const m = mults[Math.floor(Math.random() * mults.length)];
-  const streetMult   = {pre:0.9, flop:1.0, turn:1.18, river:1.35}[street] || 1.0;
-  const strengthMult = 0.75 + (handT / 9) * 0.70;
-  const spr          = chips / Math.max(pot, 1);
-  const sprMult      = spr < 3 ? 1.4 : spr < 6 ? 1.15 : spr < 12 ? 1.0 : 0.88;
-  const variance     = 0.84 + Math.random() * 0.30;
-  const raw = Math.round((pot * m * streetMult * strengthMult * sprMult * overrideMult * variance) / 5) * 5;
-  return Math.min(Math.max(raw, curBet + 20), chips);
-}
-function mkRaise(p, pot, curBet, chips, lineKey, handT=0, street='flop', why='', overrideMult=1.0) {
-  const amt = sizeBet(p, pot, curBet, chips, handT, street, overrideMult);
-  return { action:'raise', amount:amt, comment:pickLine(p, lineKey), _why:why||`价值加注·T${handT}·${street}` };
-}
-function mkCall(toCall, p, lineKey, why='') {
-  return { action:'call', amount:toCall, comment:pickLine(p, lineKey), _why:why||'跟注' };
-}
-function mkFold(p, lineKey, why='') {
-  return { action:'fold', comment:pickLine(p, lineKey), _why:why||'弃牌' };
-}
-function mkCheck(p, why='') {
-  return { action:'call', amount:0, comment:pickLine(p, 'check'), _why:why||'过牌' };
-}
-
-// ══════════════════════════════════════════
-// DECK / HAND UTILS
-// ══════════════════════════════════════════
-const fullDeck = () => SUITS.flatMap(s => VALUES.map(v => ({suit:s,value:v})));
-const cardKey  = c => c.value + c.suit;
-const _rndInt = (n) => {
-  try { const b=new Uint32Array(1); crypto.getRandomValues(b); return b[0]%n; } catch(_){}
-  return Math.floor(Math.random()*n);
-};
-const shuffle = arr => {
-  const a = [...arr];
-  for (let i = a.length-1; i > 0; i--) { const j=_rndInt(i+1); [a[i],a[j]]=[a[j],a[i]]; }
-  return a;
-};
-const deckExcluding = (...groups) => { const used=new Set(groups.flat().map(cardKey)); return fullDeck().filter(c=>!used.has(cardKey(c))); };
-
-function combos(arr,k){
-  if(k===0)return[[]]; if(arr.length<k)return[];
-  const[h,...t]=arr;
-  return [...combos(t,k-1).map(c=>[h,...c]),...combos(t,k)];
-}
+// ═══════════════════════════════════════
+// DECK & HAND UTILS
+// ═══════════════════════════════════════
+const fullDeck=()=>SUITS.flatMap(s=>VALUES.map(v=>({suit:s,value:v})));
+const cardKey=c=>c.value+c.suit;
+const _rnd=n=>{try{const b=new Uint32Array(1);crypto.getRandomValues(b);return b[0]%n}catch(e){return Math.floor(Math.random()*n)}};
+const shuffle=arr=>{const a=[...arr];for(let i=a.length-1;i>0;i--){const j=_rnd(i+1);[a[i],a[j]]=[a[j],a[i]]}return a};
+const deckExcluding=(...g)=>{const u=new Set(g.flat().map(cardKey));return fullDeck().filter(c=>!u.has(cardKey(c)))};
+function combos(arr,k){if(k===0)return[[]];if(arr.length<k)return[];const[h,...t]=arr;return[...combos(t,k-1).map(c=>[h,...c]),...combos(t,k)]}
 function score5(cards){
   const vals=cards.map(c=>VAL_NUM[c.value]).sort((a,b)=>b-a);
-  const vc={}; vals.forEach(v=>vc[v]=(vc[v]||0)+1);
+  const vc={};vals.forEach(v=>vc[v]=(vc[v]||0)+1);
   const counts=Object.values(vc).sort((a,b)=>b-a);
   const flush=new Set(cards.map(c=>c.suit)).size===1;
   const uv=[...new Set(vals)].sort((a,b)=>b-a);
@@ -344,1469 +99,660 @@ function score5(cards){
   const wheel=JSON.stringify(uv)==='[14,5,4,3,2]';
   if(flush&&str&&vals[0]===14)return{r:9900,n:'同花大顺',t:9};
   if(flush&&(str||wheel))return{r:8000+(wheel?5:vals[0]),n:'同花顺',t:8};
-  if(counts[0]===4){const q=+Object.keys(vc).find(k=>vc[k]===4);return{r:7000+q,n:'四条',t:7};}
-  if(counts[0]===3&&counts[1]===2){const q=+Object.keys(vc).find(k=>vc[k]===3);return{r:6000+q,n:'葫芦',t:6};}
+  if(counts[0]===4){const q=+Object.keys(vc).find(k=>vc[k]===4);return{r:7000+q,n:'四条',t:7}}
+  if(counts[0]===3&&counts[1]===2){const q=+Object.keys(vc).find(k=>vc[k]===3);return{r:6000+q,n:'葫芦',t:6}}
   if(flush)return{r:5000+vals[0],n:'同花',t:5};
   if(str||wheel)return{r:4000+(wheel?5:vals[0]),n:'顺子',t:4};
-  if(counts[0]===3){const q=+Object.keys(vc).find(k=>vc[k]===3);return{r:3000+q,n:'三条',t:3};}
-  if(counts[0]===2&&counts[1]===2){const ps=Object.keys(vc).filter(k=>vc[k]===2).map(Number).sort((a,b)=>b-a);return{r:2000+ps[0]*15+ps[1],n:'两对',t:2};}
-  if(counts[0]===2){const p=+Object.keys(vc).find(k=>vc[k]===2);return{r:1000+p,n:'一对',t:1};}
+  if(counts[0]===3){const q=+Object.keys(vc).find(k=>vc[k]===3);return{r:3000+q,n:'三条',t:3}}
+  if(counts[0]===2&&counts[1]===2){const ps=Object.keys(vc).filter(k=>vc[k]===2).map(Number).sort((a,b)=>b-a);return{r:2000+ps[0]*15+ps[1],n:'两对',t:2}}
+  if(counts[0]===2){const p=+Object.keys(vc).find(k=>vc[k]===2);return{r:1000+p,n:'一对',t:1}}
   return{r:vals[0],n:'高牌',t:0};
 }
 function evalHand(cards){
   if(cards.length<2)return{r:0,n:'无牌',t:-1};
-  if(cards.length<5){
-    const vals=cards.map(c=>VAL_NUM[c.value]).sort((a,b)=>b-a);
-    const vc={}; vals.forEach(v=>vc[v]=(vc[v]||0)+1);
-    if(Object.values(vc).includes(2)){const p=+Object.keys(vc).find(k=>vc[k]===2);return{r:1000+p,n:'一对',t:1};}
-    return{r:vals[0],n:'高牌',t:0};
-  }
+  if(cards.length<5){const vals=cards.map(c=>VAL_NUM[c.value]).sort((a,b)=>b-a);const vc={};vals.forEach(v=>vc[v]=(vc[v]||0)+1);if(Object.values(vc).includes(2)){const p=+Object.keys(vc).find(k=>vc[k]===2);return{r:1000+p,n:'一对',t:1}}return{r:vals[0],n:'高牌',t:0}}
   return combos(cards,5).reduce((b,c)=>{const s=score5(c);return s.r>b.r?s:b},{r:-1,n:'无牌',t:-1});
 }
-
-// ══════════════════════════════════════════
-// ANALYSIS
-// ══════════════════════════════════════════
-function calcEquity(myCards, comm, opponents=2, N=600){
+function calcEquity(myCards,comm,opponents=2,N=400){
   if(myCards.length<2)return 50;
-  const rem=deckExcluding(myCards,comm);
-  let wins=0,ties=0;
-  for(let i=0;i<N;i++){
-    const sh=shuffle(rem); let idx=0;
-    const opp=Array.from({length:opponents},()=>[sh[idx++],sh[idx++]]);
-    const board=[...comm]; while(board.length<5)board.push(sh[idx++]);
-    if(board.length!==5)continue;
-    const my=evalHand([...myCards,...board]).r;
-    const mx=Math.max(...opp.map(h=>evalHand([...h,...board]).r));
-    if(my>mx)wins++; else if(my===mx)ties+=0.5;
-  }
+  const rem=deckExcluding(myCards,comm);let wins=0,ties=0;
+  for(let i=0;i<N;i++){const sh=shuffle(rem);let idx=0;const opp=Array.from({length:opponents},()=>[sh[idx++],sh[idx++]]);const board=[...comm];while(board.length<5)board.push(sh[idx++]);if(board.length!==5)continue;const my=evalHand([...myCards,...board]).r;const mx=Math.max(...opp.map(h=>evalHand([...h,...board]).r));if(my>mx)wins++;else if(my===mx)ties+=.5}
   return Math.round((wins+ties)/N*100);
 }
-
-function calcOuts(myCards, comm){
+function calcOuts(myCards,comm){
   if(comm.length<3)return null;
-  const rem=deckExcluding(myCards,comm);
-  const cur=evalHand([...myCards,...comm]);
+  const rem=deckExcluding(myCards,comm);const cur=evalHand([...myCards,...comm]);
   const outCards=rem.filter(c=>evalHand([...myCards,...comm,c]).r>cur.r);
-  const groups={};
-  outCards.forEach(c=>{ const imp=evalHand([...myCards,...comm,c]); groups[imp.n]=(groups[imp.n]||0)+1; });
-  const streetsLeft=comm.length===3?2:1;
-  return{ count:outCards.length, prob:Math.min(outCards.length*(streetsLeft===2?4:2),98), groups, streetsLeft };
+  const groups={};outCards.forEach(c=>{const imp=evalHand([...myCards,...comm,c]);groups[imp.n]=(groups[imp.n]||0)+1});
+  const sl=comm.length===3?2:1;
+  return{count:outCards.length,prob:Math.min(outCards.length*(sl===2?4:2),98),groups,streetsLeft:sl};
 }
-
 function calcNuts(comm){
   if(comm.length<3)return null;
-  const rem=deckExcluding(comm);
-  let best={r:-1,n:'无',t:-1,hand:[]};
-  for(const pair of combos(rem,2)){
-    const s=evalHand([...pair,...comm]);
-    if(s.r>best.r)best={...s,hand:pair};
-  }
+  const rem=deckExcluding(comm);let best={r:-1,n:'无',t:-1,hand:[]};
+  for(const pair of combos(rem,2)){const s=evalHand([...pair,...comm]);if(s.r>best.r)best={...s,hand:pair}}
   return best;
 }
+function getBetAdvice(equity,outs,handT,toCall,pot,playerChips){
+  const potOddsPct=toCall>0?Math.round(toCall/(pot+toCall)*100):0;
+  const hasOuts=outs&&outs.count>0;
+  if(handT>=6)return{action:'raise',label:'强力加注',color:'#FFD700',amount:Math.min(Math.round(pot*.75),playerChips),reason:`强牌价值下注榨取筹码！`};
+  if(handT>=4)return{action:'raise',label:'适度加注',color:'#44CC77',amount:Math.min(Math.round(pot*.5),playerChips),reason:'中强牌，主动加注建立优势。'};
+  if(equity>=60)return{action:'raise',label:'价值下注',color:'#44CC77',amount:Math.min(Math.round(pot*.4),playerChips),reason:`胜率 ${equity}%，有优势，可以加注。`};
+  if(toCall===0){if(hasOuts&&outs.prob>=20)return{action:'check',label:'免费看牌',color:'#4A9EFF',amount:0,reason:`有 ${outs.count} 张 outs，免费等机会。`};return{action:'check',label:'过牌观望',color:'#4A9EFF',amount:0,reason:'手牌一般，过牌最安全。'}}
+  if(equity>=potOddsPct+5&&hasOuts)return{action:'call',label:'值得跟注',color:'#4A9EFF',amount:toCall,reason:`胜率(${equity}%)高于赔率(${potOddsPct}%)。`};
+  if(equity>=50)return{action:'call',label:'跟注可行',color:'#88AAFF',amount:toCall,reason:`胜率约 ${equity}%，可以跟注。`};
+  if(hasOuts&&outs.prob>=15&&equity>=potOddsPct-5)return{action:'call',label:'听牌跟注',color:'#FF8C42',amount:toCall,reason:`${outs.count} 张 outs，约 ${outs.prob}% 改善率。`};
+  return{action:'fold',label:'建议弃牌',color:'#FF6655',amount:0,reason:`胜率仅 ${equity}%，不划算。`};
+}
 
-// ── Betting advice (local, no AI needed) ──
-function getBetAdvice(equity, outs, handT, toCall, pot, playerChips, comm){
-  const potOddsPct = toCall>0 ? Math.round(toCall/(pot+toCall)*100) : 0;
-  const hasOuts = outs && outs.count>0;
-  const phase = comm.length===0?'preflop':comm.length===3?'flop':comm.length===4?'turn':'river';
+// ═══════════════════════════════════════
+// AI DECISION ENGINE
+// ═══════════════════════════════════════
+function pickLine(p,key){const arr=p.lines[key]||p.lines.call;return arr[Math.floor(Math.random()*arr.length)]}
+function sizeBet(p,pot,curBet,chips,handT=0,street='flop',ovr=1.0){
+  const m=p.betSizing[Math.floor(Math.random()*p.betSizing.length)];
+  const sm={pre:.9,flop:1.0,turn:1.18,river:1.35}[street]||1.0;
+  const stm=.75+(handT/9)*.70;const spr=chips/Math.max(pot,1);
+  const sprm=spr<3?1.4:spr<6?1.15:spr<12?1.0:.88;
+  const v=.84+Math.random()*.30;
+  const raw=Math.round((pot*m*sm*stm*sprm*ovr*v)/5)*5;
+  return Math.min(Math.max(raw,curBet+20),chips);
+}
+function mkRaise(p,pot,curBet,chips,lk,handT=0,street='flop',why='',ovr=1.0){return{action:'raise',amount:sizeBet(p,pot,curBet,chips,handT,street,ovr),comment:pickLine(p,lk),_why:why}}
+function mkCall(tc,p,lk,why=''){return{action:'call',amount:tc,comment:pickLine(p,lk),_why:why}}
+function mkFold(p,lk,why=''){return{action:'fold',comment:pickLine(p,lk),_why:why}}
+function mkCheck(p,why=''){return{action:'call',amount:0,comment:pickLine(p,'check'),_why:why}}
 
-  if(handT>=6){ // 葫芦以上
-    return { action:'raise', label:'强力加注', color:'#FFD700',
-      amount: Math.min(Math.round(pot*0.75), playerChips),
-      reason:`你持有${['','高牌','一对','两对','三条','顺子','同花','葫芦','四条','同花顺','同花大顺'][handT+1]||'强牌'}，价值下注榨取筹码！` };
-  }
-  if(handT>=4){
-    return { action:'raise', label:'适度加注', color:'#44CC77',
-      amount: Math.min(Math.round(pot*0.5), playerChips),
-      reason:'中强牌，主动加注建立优势，试探对手实力。' };
-  }
-  if(equity>=60){
-    return { action:'raise', label:'价值下注', color:'#44CC77',
-      amount: Math.min(Math.round(pot*0.4), playerChips),
-      reason:`胜率 ${equity}%，有优势，可以加注让对手付钱。` };
-  }
-  if(toCall===0){
-    if(hasOuts && outs.prob>=20){
-      return { action:'check', label:'免费看牌', color:'#4A9EFF',
-        amount:0, reason:`有 ${outs.count} 张 outs (${outs.prob}% 改善)，免费过牌等待机会。` };
+function makeAiDecision(ai,comm,pot,curBet){
+  const p=PERSONAS[ai.id];if(!p)return{action:'call',amount:0,comment:''};
+  const toCall=Math.max(0,curBet-ai.bet);
+  const hand=evalHand([...ai.cards,...comm]);const t=hand.t;
+  const R=()=>Math.random();
+  const phase=comm.length===0?'pre':comm.length===3?'flop':comm.length===4?'turn':'river';
+  const si={pre:0,flop:1,turn:2,river:3}[phase];
+  const spr=ai.chips/Math.max(pot,1);
+  const seat=['gpt4','gemini','llama','claude','grok'].indexOf(ai.id);
+  const posBoost=(seat/4)*p.positionAdj;
+  const effAgg=Math.min(.97,p.aggression*(p.streetAgg[si]??1.0)+posBoost);
+  const tilted=p.tiltable&&ai.chips<800;const tm=tilted?1.35:1.0;
+  const isShort=spr<4;
+  const potOdds=toCall>0?toCall/(pot+toCall):0;
+  const potOddsPct=Math.round(potOdds*100);
+  const why=r=>`[${hand.n}·T${t}] ${phase}·位置${seat}·SPR${spr.toFixed(1)}｜${r}`;
+
+  if(phase==='pre'){
+    if(toCall>0&&toCall>=curBet*.5){
+      if(t>=1||R()<p.preflopCont*tm){if(t>=3||R()<p.threeBetFreq*tm)return mkRaise(p,pot,curBet,ai.chips,t>=2?'strong':'bluff',t,phase,why(`3-bet`));return mkCall(toCall,p,'call',why('跟注入池'))}
+      return mkFold(p,'fold',why(`翻前弃牌`))
     }
-    return { action:'check', label:'过牌观望', color:'#4A9EFF',
-      amount:0, reason:'手牌一般，免费过牌是最安全的选择。' };
+    if(t>=2||R()<p.preflopCont*tm){if(R()<effAgg*.88+posBoost)return mkRaise(p,pot,curBet,ai.chips,t>=1?'strong':'bluff',t,phase,why(`开局加注`));return mkCall(toCall||0,p,'call',why('跟注入池'))}
+    return mkFold(p,'fold',why('翻前弃牌'))
   }
-  if(equity>=potOddsPct+5 && hasOuts){
-    return { action:'call', label:'值得跟注', color:'#4A9EFF',
-      amount:toCall, reason:`胜率(${equity}%)高于底池赔率(${potOddsPct}%)，且有 ${outs.count} 张改善牌。` };
-  }
-  if(equity>=50){
-    return { action:'call', label:'跟注可行', color:'#88AAFF',
-      amount:toCall, reason:`胜率约 ${equity}%，均势局面，适合跟注看后续牌。` };
-  }
-  if(hasOuts && outs.prob>=15 && equity>=potOddsPct-5){
-    return { action:'call', label:'听牌跟注', color:'#FF8C42',
-      amount:toCall, reason:`听牌中，${outs.count} 张 outs，改善率约 ${outs.prob}%，赌一把。` };
-  }
-  return { action:'fold', label:'建议弃牌', color:'#FF6655',
-    amount:0, reason:`胜率仅 ${equity}%，底池赔率不划算，等下一把更好的机会。` };
+  if(isShort){if(t>=2||(tilted&&R()<.6))return mkRaise(p,pot,curBet,ai.chips,t>=2?'strong':'bluff',t,phase,why(`短筹码All-in`));if(potOdds<.3)return mkCall(toCall,p,'call',why('短筹码·赔率可'));return mkFold(p,'fold',why('短筹码·弃牌'))}
+  if(t>=6){if(R()<p.slowPlay){if(toCall===0)return mkCheck(p,why('怪兽慢打'));return mkCall(toCall,p,'strong',why('怪兽慢跟'))}return mkRaise(p,pot,curBet,ai.chips,'strong',t,phase,why('怪兽快打'),1.25)}
+  if(t>=4){if(toCall===0){if(R()<effAgg*.82)return mkRaise(p,pot,curBet,ai.chips,'strong',t,phase,why('顺/同花·价值'));return mkCheck(p,why('顺/同花·诱骗'))}if(R()<effAgg*.52)return mkRaise(p,pot,curBet,ai.chips,'reraise',t,phase,why('顺/同花·反加'));return mkCall(toCall,p,'call',why('顺/同花·跟注'))}
+  if(t===3){if(toCall===0){if(R()<p.slowPlay*.9)return mkCheck(p,why('三条·check-raise陷阱'));return mkRaise(p,pot,curBet,ai.chips,'strong',t,phase,why('三条·下注'))}if(R()<effAgg*.75+.2)return mkRaise(p,pot,curBet,ai.chips,'reraise',t,phase,why('三条check-raise！'));return mkCall(toCall,p,'call',why('三条·慢跟'))}
+  if(t===2){if(toCall===0){if(R()<effAgg*.72)return mkRaise(p,pot,curBet,ai.chips,'strong',t,phase,why('两对·下注'));return mkCheck(p,why('两对·诱骗'))}if(R()<effAgg*.48&&phase!=='pre')return mkRaise(p,pot,curBet,ai.chips,'reraise',t,phase,why('两对·反加'));if(potOdds<.38||R()>p.panicFold)return mkCall(toCall,p,'call',why(`两对·跟注·赔率${potOddsPct}%`));return mkFold(p,'fold',why('两对·弃牌'))}
+  if(t===1){if(toCall===0){if(R()<p.donkFreq*tm)return mkRaise(p,pot,curBet,ai.chips,'strong',t,phase,why(`donk下注`));if(R()<effAgg*.36)return mkRaise(p,pot,curBet,ai.chips,'strong',t,phase,why('一对·试探'));return mkCheck(p,why('一对·过牌'))}if(seat>=3&&spr>8&&R()<.38)return mkCall(toCall,p,'call',why('一对·浮注'));const ratio=toCall/Math.max(pot,1);if(ratio<.22||R()>p.panicFold+.08)return mkCall(toCall,p,'call',why(`一对·跟注`));return mkFold(p,'fold',why('一对·弃牌'))}
+  if(toCall===0){const ct=p.cBetFreq*tm*(phase==='flop'?1.0:phase==='turn'?.6:.4);if(R()<ct)return mkRaise(p,pot,curBet,ai.chips,'bluff',t,phase,why(`c-bet`));if(R()<p.donkFreq*tm)return mkRaise(p,pot,curBet,ai.chips,'bluff',t,phase,why('donk蒙'));return mkCheck(p,why('高牌·过牌'))}
+  if(toCall>=curBet*.65&&R()<p.foldTo3bet)return mkFold(p,'fold',why(`高牌·面对大注`));
+  if(phase==='river'&&R()<p.bluffFreq*.5*tm)return mkRaise(p,pot,curBet,ai.chips,'bluff',t,phase,why('河牌蒙'));
+  if(tilted&&R()<.5)return mkCall(toCall,p,'call',why('倾斜·跟注'));
+  const ratio=toCall/Math.max(pot,1);
+  if(ratio<.14&&R()<.58)return mkCall(toCall,p,'call',why('高牌·跟小注'));
+  if(R()<p.panicFold+.15)return mkFold(p,'fold',why('高牌·弃牌'));
+  return mkCall(toCall,p,'call',why('高牌·跟注'));
 }
 
-// ══════════════════════════════════════════
-// API
-// ══════════════════════════════════════════
-async function callClaude(system, user, maxTokens=200){
-  const res = await fetch("https://api.anthropic.com/v1/messages",{
-    method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:maxTokens,
-      system, messages:[{role:"user",content:user}] })
-  });
-  const d = await res.json();
-  return d.content?.map(b=>b.text||'').join('').trim().replace(/```[a-z]*\n?|```/g,'').trim();
-}
-
-// Primary decision: instant local personality engine (no API latency)
-function getAiMove(ai, comm, pot, curBet) {
-  return makeAiDecision(ai, comm, pot, curBet);
-}
-
-async function getCoachAnalysis(myCards, comm, equity, outsInfo, nutsInfo, pot, curBet, playerBet, playerChips){
-  const toCall = Math.max(0, curBet-playerBet);
-  const hand = evalHand([...myCards,...comm]);
-  const potOdds = toCall>0 ? Math.round(toCall/(pot+toCall)*100) : 0;
-  try {
-    const raw = await callClaude(
-      "你是德扑教练，给新手用简单中文讲解。只输出JSON，不要代码块，不要其他文字。",
-      `分析局势：底牌:${myCards.map(c=>c.value+c.suit).join(' ')} 公共:${comm.map(c=>c.value+c.suit).join(' ')||'无'}\n当前牌型:${hand.n} 胜率:${equity}% Outs:${outsInfo?.count||0}张(${outsInfo?.prob||0}%) Nuts:${nutsInfo?.n||'未知'} 底池:${pot} 需跟注:${toCall} 底池赔率:${potOdds}%\n返回JSON(每项25字以内): {"handExplain":"牌型好坏分析","outsExplain":"outs含义","nutsExplain":"与最强差距"}`,
-      350
-    );
-    return JSON.parse(raw);
-  } catch {
-    return {
-      handExplain: `当前 ${hand.n}，${hand.t>=3?'不错的手牌':'还需要改善'}。`,
-      outsExplain: outsInfo?.count>0 ? `有 ${outsInfo.count} 张牌能帮你提升，约 ${outsInfo.prob}% 概率。` : '目前没有明显改善机会。',
-      nutsExplain: nutsInfo ? `桌面最强牌型是${nutsInfo.n}。` : '公共牌待发。'
-    };
-  }
-}
-
-// ══════════════════════════════════════════
-// CARD COMPONENT
-// ══════════════════════════════════════════
-function Card({ card, hidden=false, size='md' }) {
-  const dims = { sm:{w:34,h:48,vf:9,sf:17,mf:9}, md:{w:54,h:76,vf:13,sf:28,mf:13}, lg:{w:68,h:96,vf:15,sf:34,mf:15} }[size];
-  const isRed = card && RED_SUITS.has(card.suit);
-  if(hidden) return (
-    <div style={{width:dims.w,height:dims.h,borderRadius:6,flexShrink:0,
-      background:'linear-gradient(150deg,#1a3d5c,#0e2438)',
-      border:'1.5px solid #1f4d72',boxShadow:'0 3px 8px rgba(0,0,0,0.7)',
-      display:'flex',alignItems:'center',justifyContent:'center'}}>
-      <span style={{color:'#1f4d72',fontSize:dims.vf+2}}>◇</span>
-    </div>
-  );
-  if(!card) return (
-    <div style={{width:dims.w,height:dims.h,borderRadius:6,flexShrink:0,
-      border:'1.5px dashed rgba(255,255,255,0.08)',background:'rgba(0,0,0,0.15)'}}/>
-  );
-  return (
-    <div style={{width:dims.w,height:dims.h,borderRadius:6,flexShrink:0,
-      background:'#FFFCF0',border:'1px solid #d8d0a0',
-      boxShadow:'0 4px 10px rgba(0,0,0,0.65)',
-      display:'flex',flexDirection:'column',justifyContent:'space-between',
-      padding:'3px 4px',color:isRed?'#C81010':'#111'}}>
-      <div style={{fontSize:dims.vf,fontWeight:900,lineHeight:1,fontFamily:'Georgia,serif'}}>{card.value}</div>
-      <div style={{fontSize:dims.sf,textAlign:'center',lineHeight:1}}>{card.suit}</div>
-      <div style={{fontSize:dims.mf,fontWeight:900,lineHeight:1,transform:'rotate(180deg)',alignSelf:'flex-end',fontFamily:'Georgia,serif'}}>{card.value}</div>
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════
-// HAND STRENGTH BAR
-// ══════════════════════════════════════════
-function StrengthBar({ value, max=100, color='#44CC77', label }) {
-  return (
-    <div>
-      {label && <div style={{fontSize:11,color:'#7a9a84',marginBottom:3}}>{label}</div>}
-      <div style={{height:6,background:'rgba(255,255,255,0.07)',borderRadius:3,overflow:'hidden'}}>
-        <div style={{height:'100%',width:`${(value/max)*100}%`,
-          background:`linear-gradient(90deg, ${color}88, ${color})`,
-          borderRadius:3,transition:'width .5s ease'}}/>
-      </div>
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════
-// BADGE
-// ══════════════════════════════════════════
-function Badge({ text, color='#44CC77', bg }) {
-  return (
-    <span style={{
-      background: bg || color+'22',
-      border:`1px solid ${color}44`,
-      borderRadius:20, padding:'2px 9px',
-      fontSize:11, color, fontWeight:700, letterSpacing:.3
-    }}>{text}</span>
-  );
-}
-
-// ══════════════════════════════════════════
-// POSITION TOKEN
-// ══════════════════════════════════════════
-const POS_STYLE = {
-  D:  {bg:'#B8943A', color:'#000', label:'D'},
-  SB: {bg:'#3a6aCC', color:'#fff', label:'SB'},
-  BB: {bg:'#CC3a3a', color:'#fff', label:'BB'},
+// ═══════════════════════════════════════
+// GAME STATE
+// ═══════════════════════════════════════
+const S = {
+  phase:'lobby', playerCards:[], comm:[], pot:0, curBet:0, playerBet:0,
+  playerChips:2000, playerFolded:false,
+  ais: AI_CONFIGS.map(a=>({...a,cards:[],bet:0,folded:false,thinking:false,lastAction:null,comment:'',showCards:false,pos:null,decisionLog:[]})),
+  result:null, waiting:false, handNum:0, raiseAmt:60, raiseBtnLabel:null,
+  tab:'analysis', equity:null, outs:null, nuts:null, betAdvice:null,
+  dealerPos:0, currentPlayerPos:null, showCoach:true, aiDetail:null, handHistory:[],
+  deck:[], potActual:0, commActual:[], aisActual:[],
+  orbit:{toAct:[],curBet:0,playerStreetBet:0,pFolded:false},
 };
-function PosToken({ pos }) {
-  if(!pos) return null;
-  const s = POS_STYLE[pos];
-  return (
-    <span style={{
-      background:s.bg, color:s.color,
-      borderRadius:'50%', width:17, height:17,
-      display:'inline-flex', alignItems:'center', justifyContent:'center',
-      fontSize:8, fontWeight:900, flexShrink:0, letterSpacing:-.3
-    }}>{s.label}</span>
-  );
+
+// ═══════════════════════════════════════
+// CARD RENDERING
+// ═══════════════════════════════════════
+function cardHTML(card, hidden=false, size='md') {
+  const dims={sm:{w:34,h:48,vf:9,sf:16,mf:9},md:{w:54,h:76,vf:13,sf:28,mf:13},lg:{w:68,h:96,vf:15,sf:34,mf:15}}[size];
+  if(hidden)return`<div style="width:${dims.w}px;height:${dims.h}px;border-radius:6px;flex-shrink:0;background:linear-gradient(150deg,#1a3d5c,#0e2438);border:1.5px solid #1f4d72;box-shadow:0 3px 8px rgba(0,0,0,.7);display:inline-flex;align-items:center;justify-content:center"><span style="color:#1f4d72;font-size:${dims.vf+2}px">◇</span></div>`;
+  if(!card)return`<div style="width:${dims.w}px;height:${dims.h}px;border-radius:6px;flex-shrink:0;border:1.5px dashed rgba(255,255,255,.08);background:rgba(0,0,0,.15)"></div>`;
+  const isRed=RED_SUITS.has(card.suit);
+  return`<div style="width:${dims.w}px;height:${dims.h}px;border-radius:6px;flex-shrink:0;background:#FFFCF0;border:1px solid #d8d0a0;box-shadow:0 4px 10px rgba(0,0,0,.65);display:inline-flex;flex-direction:column;justify-content:space-between;padding:3px 4px;color:${isRed?'#C81010':'#111'}"><div style="font-size:${dims.vf}px;font-weight:900;line-height:1;font-family:Georgia,serif">${card.value}</div><div style="font-size:${dims.sf}px;text-align:center;line-height:1">${card.suit}</div><div style="font-size:${dims.mf}px;font-weight:900;line-height:1;transform:rotate(180deg);align-self:flex-end;font-family:Georgia,serif">${card.value}</div></div>`;
 }
 
-// ══════════════════════════════════════════
-// AI SEAT
-// ══════════════════════════════════════════
-function AiSeat({ ai, onClick }) {
-  const isFolded = ai.folded;
-  return (
-    <div onClick={onClick} style={{
-      flex:'0 0 auto',
-      width: isFolded ? 76 : 112,
-      background: isFolded ? 'rgba(8,10,8,0.7)' : 'rgba(10,20,14,0.95)',
-      border:`1.5px solid ${isFolded?'#141814':ai.color+'33'}`,
-      borderRadius:12, padding: isFolded ? '7px 8px' : '8px 10px',
-      opacity: isFolded ? 0.32 : 1,
-      transition:'width .4s cubic-bezier(.4,0,.2,1), opacity .4s, padding .4s, background .4s',
-      boxShadow: ai.thinking ? `0 0 22px ${ai.color}44,inset 0 0 10px ${ai.color}11` : undefined,
-      overflow:'hidden', cursor:'pointer'
-    }}>
-      {/* Name row */}
-      <div style={{display:'flex',alignItems:'center',gap:5,marginBottom:isFolded?4:6}}>
-        <span style={{fontSize:isFolded?14:18,lineHeight:1,transition:'font-size .3s'}}>{ai.emoji}</span>
-        {!isFolded && <div style={{minWidth:0}}>
-          <div style={{display:'flex',alignItems:'center',gap:4}}>
-            <div style={{color:ai.color, fontSize:12, fontWeight:800, lineHeight:1.2, whiteSpace:'nowrap'}}>{ai.name}</div>
-            <PosToken pos={ai.pos}/>
-          </div>
-          <div style={{color:'#3a5a42', fontSize:10, fontWeight:600}}>◈ {ai.chips.toLocaleString()}</div>
-        </div>}
-        {isFolded && <div style={{minWidth:0}}>
-          <div style={{color:'#333', fontSize:10, fontWeight:700, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:44}}>{ai.name}</div>
-          <div style={{color:'#1e2e1e', fontSize:9}}>弃牌</div>
-        </div>}
-      </div>
-      {/* Cards — slide back when folded */}
-      <div className={isFolded ? 'seat-folded-cards' : ''} style={{display:'flex',gap:3,marginBottom:isFolded?0:6}}>
-        {!isFolded && (ai.cards||[]).map((c,j)=>(
-          <Card key={j} card={ai.showCards ? c : null} hidden={!ai.showCards} size="sm"/>
-        ))}
-        {isFolded && (ai.cards||[]).map((_,j)=>(
-          <div key={j} style={{width:22,height:30,borderRadius:4,background:'#0e120e',border:'1px solid #111',flexShrink:0}}/>
-        ))}
-      </div>
-      {/* Action + comment — only for active */}
-      {!isFolded && ai.lastAction && ai.lastAction!=='blind' && (
-        <div style={{marginBottom:ai.comment?4:0}}>
-          <Badge
-            text={ai.lastAction==='fold'?'弃牌':ai.lastAction==='raise'?`加注 ${ai.bet}`:`跟注`}
-            color={ai.lastAction==='fold'?'#FF5544':ai.lastAction==='raise'?'#FFD700':'#44CC77'}
-          />
-        </div>
-      )}
-      {!isFolded && ai.lastAction==='blind' && (
-        <div style={{marginBottom:4}}>
-          <Badge text={ai.comment||'盲注'} color='#5577AA'/>
-        </div>
-      )}
-      {!isFolded && ai.comment && ai.lastAction!=='blind' && (
-        <div style={{fontSize:10,color:'#5a7a64',fontStyle:'italic',
-          whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',maxWidth:90,marginTop:2}}>
-          "{ai.comment}"
-        </div>
-      )}
-      {/* Thinking dots */}
-      {!isFolded && ai.thinking && (
-        <div style={{display:'flex',gap:3,marginTop:5}}>
-          {[0,1,2].map(k=>(
-            <div key={k} style={{width:5,height:5,borderRadius:'50%',background:ai.color,
-              animation:`blink .8s ${k*.22}s infinite`}}/>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+function posToken(pos){
+  if(!pos)return'';
+  const s={D:{bg:'#B8943A',c:'#000'},SB:{bg:'#3a6aCC',c:'#fff'},BB:{bg:'#CC3a3a',c:'#fff'}}[pos];
+  return`<span style="background:${s.bg};color:${s.c};border-radius:50%;width:17px;height:17px;display:inline-flex;align-items:center;justify-content:center;font-size:8px;font-weight:900;flex-shrink:0;letter-spacing:-.3px;margin-left:3px">${pos}</span>`;
 }
 
-// ══════════════════════════════════════════
-// AI DETAIL MODAL
-// ══════════════════════════════════════════
-const STREET_CN = {pre:'翻前', flop:'翻牌', turn:'转牌', river:'河牌'};
-const ACTION_COLOR = a => a.startsWith('raise') ? '#FFD700' : a==='fold' ? '#FF5544' : a==='check' ? '#7a9a84' : '#44CC77';
-
-function AiDetailModal({ ai, onClose }) {
-  if(!ai) return null;
-  const p = PERSONAS[ai.id] || {};
-  const log = ai.decisionLog || [];
-  return (
-    <div onClick={onClose} style={{
-      position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', zIndex:999,
-      display:'flex', alignItems:'flex-end', justifyContent:'center'
-    }}>
-      <div onClick={e=>e.stopPropagation()} style={{
-        width:'100%', maxWidth:430,
-        background:'#080f09', borderTop:'2px solid '+ai.color+'44',
-        borderRadius:'18px 18px 0 0', padding:'18px 16px 28px',
-        maxHeight:'80vh', overflowY:'auto'
-      }}>
-        {/* Header */}
-        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14}}>
-          <span style={{fontSize:26}}>{ai.emoji}</span>
-          <div style={{flex:1}}>
-            <div style={{color:ai.color,fontWeight:900,fontSize:17}}>{ai.name}</div>
-            <div style={{color:'#3a5a42',fontSize:11}}>◈ {ai.chips.toLocaleString()} · {ai.folded?'已弃牌':'在局中'}</div>
-          </div>
-          <button onClick={onClose} style={{
-            background:'none',border:'none',color:'#3a5a42',fontSize:22,cursor:'pointer',padding:'0 4px'
-          }}>✕</button>
-        </div>
-
-        {/* Personality stats */}
-        <div style={{background:'rgba(255,255,255,0.025)',borderRadius:12,padding:'10px 12px',marginBottom:12,
-          display:'grid',gridTemplateColumns:'1fr 1fr',gap:'7px 14px'}}>
-          {[
-            {k:'激进度',   v: Math.round(p.aggression*100)+'%'},
-            {k:'虚张频率', v: Math.round(p.bluffFreq*100)+'%'},
-            {k:'恐慌弃牌', v: Math.round(p.panicFold*100)+'%'},
-            {k:'慢打率',   v: Math.round(p.slowPlay*100)+'%'},
-            {k:'开牌范围', v: Math.round((p.preflopContinue||0.55)*100)+'%'},
-            {k:'下注区间', v: (p.betSizing||[]).map(x=>Math.round(x*100)+'%').join('·')},
-          ].map(({k,v})=>(
-            <div key={k}>
-              <div style={{color:'#3a5a42',fontSize:10}}>{k}</div>
-              <div style={{color:'#b8ccbe',fontSize:12,fontWeight:700}}>{v}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* Decision log */}
-        <div style={{color:'#3a5a42',fontSize:11,marginBottom:8,letterSpacing:.5}}>本局决策记录</div>
-        {log.length === 0 && (
-          <div style={{color:'#2a3a2a',fontSize:12,textAlign:'center',padding:'12px 0'}}>本局暂无记录</div>
-        )}
-        {log.map((entry, i) => (
-          <div key={i} style={{
-            background:'rgba(255,255,255,0.02)', border:'1px solid #0f1f10',
-            borderRadius:9, padding:'8px 10px', marginBottom:6
-          }}>
-            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
-              <span style={{
-                background:ACTION_COLOR(entry.action)+'22',
-                border:'1px solid '+ACTION_COLOR(entry.action)+'44',
-                borderRadius:20, padding:'1px 8px',
-                color:ACTION_COLOR(entry.action), fontSize:10, fontWeight:700, flexShrink:0
-              }}>{entry.action}</span>
-              <span style={{color:'#3a5a42',fontSize:10}}>{STREET_CN[entry.street]||entry.street}</span>
-            </div>
-            {entry.why && (
-              <div style={{color:'#6a8a74',fontSize:11,lineHeight:1.55}}>{entry.why}</div>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+function badge(text,color,bg){
+  return`<span style="background:${bg||color+'22'};border:1px solid ${color}44;border-radius:20px;padding:2px 9px;font-size:11px;color:${color};font-weight:700;letter-spacing:.3px">${text}</span>`;
 }
 
-// ══════════════════════════════════════════
-// COACH PANEL
-// ══════════════════════════════════════════
-function CoachPanel({ tab, setTab, equity, outs, nuts, handInfo, betAdvice, coach, coachLoading, toCall, pot, phase, handHistory=[] }) {
-  const eqColor = equity==null?'#888':equity>=60?'#44CC77':equity>=42?'#FFD700':'#FF6655';
-  const tabs = [
-    {id:'analysis', icon:'📊', label:'分析'},
-    {id:'outs',     icon:'🎯', label:'Outs'},
-    {id:'nuts',     icon:'👑', label:'Nuts'},
-    {id:'review',   icon:'🔁', label:'复盘'},
-  ];
-
-  return (
-    <div style={{margin:'0 10px 6px',background:'#080f09',border:'1.5px solid #0f2014',borderRadius:16,overflow:'hidden'}}>
-      {/* Tab bar */}
-      <div style={{display:'flex',background:'rgba(0,0,0,0.4)'}}>
-        {tabs.map(t=>(
-          <button key={t.id} onClick={()=>setTab(t.id)} style={{
-            flex:1,padding:'10px 0',background:'none',border:'none',cursor:'pointer',
-            borderBottom:`2px solid ${tab===t.id?'#B8943A':'transparent'}`,
-            color:tab===t.id?'#B8943A':'#3a5a42', fontSize:12, fontWeight:tab===t.id?700:500,
-            transition:'all .2s', letterSpacing:.3
-          }}>
-            {t.icon} {t.label}
-          </button>
-        ))}
-      </div>
-
-      <div style={{padding:'12px 14px', minHeight:110, maxHeight:220, overflowY:'auto'}}>
-
-        {/* ── ANALYSIS TAB: equity + hand strength + pot odds + advice ── */}
-        {tab==='analysis' && (
-          <div style={{display:'flex',flexDirection:'column',gap:10}}>
-            {/* Equity */}
-            <div style={{background:'rgba(255,255,255,0.025)',borderRadius:11,padding:'11px 13px',border:'1px solid #0f2014'}}>
-              <div style={{display:'flex',alignItems:'baseline',justifyContent:'space-between',marginBottom:7}}>
-                <span style={{color:'#7a9a84',fontSize:11,letterSpacing:.5}}>你的胜率</span>
-                <span style={{color:eqColor, fontSize:26, fontWeight:900, lineHeight:1}}>
-                  {equity!=null ? `${equity}%` : '--'}
-                </span>
-              </div>
-              <StrengthBar value={equity||0} color={eqColor}/>
-              <div style={{color:'#3a5a42',fontSize:11,marginTop:5}}>
-                {equity>=60?'🟢 明显优势，积极行动':equity>=45?'🟡 势均力敌，谨慎为上':'🔴 处于劣势，考虑弃牌'}
-              </div>
-            </div>
-            {/* Hand strength */}
-            <div style={{background:'rgba(255,255,255,0.025)',borderRadius:11,padding:'11px 13px',border:'1px solid #0f2014'}}>
-              <div style={{display:'flex',alignItems:'baseline',justifyContent:'space-between',marginBottom:7}}>
-                <span style={{color:'#7a9a84',fontSize:11,letterSpacing:.5}}>当前牌型</span>
-                <span style={{color:'#B8943A',fontSize:16,fontWeight:800}}>{handInfo?.n||'--'}</span>
-              </div>
-              <StrengthBar value={handInfo?.t||0} max={9} color='#B8943A'/>
-              <div style={{color:'#3a5a42',fontSize:11,marginTop:5}}>
-                {handInfo?.t>=7?'💎 顶级强牌！大力加注':handInfo?.t>=5?'🔷 强牌，可以加注':handInfo?.t>=3?'🔶 中等牌，谨慎行动':'♦ 弱牌，被迫时再跟注'}
-              </div>
-            </div>
-            {/* Pot odds */}
-            {toCall>0 && (
-              <div style={{background:'rgba(255,255,255,0.025)',borderRadius:11,padding:'11px 13px',border:'1px solid #0f2014'}}>
-                <div style={{color:'#7a9a84',fontSize:11,letterSpacing:.5,marginBottom:6}}>底池赔率分析</div>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                  <div>
-                    <div style={{color:'#ccddd4',fontSize:13}}>需跟注 <span style={{color:'#B8943A',fontWeight:800}}>◈ {toCall}</span></div>
-                    <div style={{color:'#3a5a42',fontSize:11,marginTop:2}}>底池 → {pot+toCall}</div>
-                  </div>
-                  <div style={{textAlign:'right'}}>
-                    <div style={{color:'#ccddd4',fontSize:13}}>赔率 <span style={{fontWeight:800}}>{Math.round(toCall/(pot+toCall)*100)}%</span></div>
-                    {equity!=null && (
-                      <div style={{
-                        color: equity>Math.round(toCall/(pot+toCall)*100) ? '#44CC77' : '#FF6655',
-                        fontSize:11, marginTop:2, fontWeight:700
-                      }}>
-                        {equity>Math.round(toCall/(pot+toCall)*100) ? '✓ 值得跟注' : '✗ 赔率不划算'}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-            {/* Advice block merged in */}
-            {betAdvice && (
-              <div style={{background:`${betAdvice.color}11`,border:`1.5px solid ${betAdvice.color}33`,borderRadius:11,padding:'10px 12px'}}>
-                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:5}}>
-                  <div style={{display:'flex',alignItems:'center',gap:7}}>
-                    <span style={{fontSize:17}}>{betAdvice.action==='fold'?'🔴':betAdvice.action==='raise'?'🟡':'🟢'}</span>
-                    <span style={{color:betAdvice.color,fontWeight:900,fontSize:14}}>{betAdvice.label}</span>
-                  </div>
-                  {betAdvice.action==='raise'&&betAdvice.amount>0&&<span style={{color:'#B8943A',fontWeight:800,fontSize:13}}>◈ {betAdvice.amount}</span>}
-                  {betAdvice.action==='call'&&toCall>0&&<span style={{color:'#4A9EFF',fontWeight:800,fontSize:13}}>◈ {toCall}</span>}
-                </div>
-                <div style={{color:'#b0c8b8',fontSize:12,lineHeight:1.6}}>{betAdvice.reason}</div>
-                {coachLoading&&<div style={{display:'flex',alignItems:'center',gap:6,color:'#3a5a42',fontSize:11,marginTop:6}}><div style={{display:'flex',gap:3}}>{[0,1,2].map(k=><div key={k} style={{width:4,height:4,borderRadius:'50%',background:'#B8943A',animation:`blink .8s ${k*.2}s infinite`}}/>)}</div>AI 教练深度分析中…</div>}
-                {coach&&!coachLoading&&<div style={{color:'#6a9a74',fontSize:11,lineHeight:1.55,borderTop:'1px solid #0f2014',paddingTop:7,marginTop:6}}>{coach.handExplain}</div>}
-              </div>
-            )}
-            {phase==='preflop'&&!betAdvice&&equity!=null&&(
-              <div style={{textAlign:'center',padding:'8px 0',color:'#4a7a54',fontSize:12}}>翻牌后显示建议 · 当前预估胜率 <span style={{color:eqColor,fontWeight:800}}>{equity}%</span></div>
-            )}
-          </div>
-        )}
-
-        {/* ── OUTS TAB ── */}
-        {tab==='outs' && (
-          <div>
-            {!outs ? (
-              <div style={{color:'#2a4a34',fontSize:13,textAlign:'center',padding:'20px 0',lineHeight:1.8}}>
-                翻牌后显示 Outs 分析<br/>
-                <span style={{fontSize:11,color:'#1a3020'}}>Outs = 能改善你手牌的牌</span>
-              </div>
-            ) : (
-              <div>
-                {/* Big number */}
-                <div style={{display:'flex',alignItems:'baseline',gap:10,marginBottom:10}}>
-                  <span style={{color:'#B8943A',fontWeight:900,fontSize:36,lineHeight:1}}>{outs.count}</span>
-                  <div>
-                    <div style={{color:'#7a9a84',fontSize:12}}>张改善牌 (Outs)</div>
-                    <div style={{
-                      color:outs.prob>=30?'#44CC77':outs.prob>=15?'#FFD700':'#FF8C42',
-                      fontWeight:800, fontSize:16
-                    }}>改善概率 ≈ {outs.prob}%</div>
-                  </div>
-                </div>
-                {/* Rule of 4/2 */}
-                <div style={{
-                  background:'rgba(184,148,58,0.08)',border:'1px solid rgba(184,148,58,0.2)',
-                  borderRadius:9, padding:'7px 10px', marginBottom:10, fontSize:11, color:'#8a9a84'
-                }}>
-                  <span style={{color:'#B8943A',fontWeight:700}}>×{outs.streetsLeft===2?4:2} 法则：</span>
-                  {outs.count} × {outs.streetsLeft===2?4:2} ≈ {outs.prob}%
-                  {outs.streetsLeft===2?' (还有两条街)':' (还有一条街)'}
-                </div>
-                {/* Breakdown */}
-                {Object.entries(outs.groups).map(([name,cnt])=>(
-                  <div key={name} style={{
-                    display:'flex',justifyContent:'space-between',alignItems:'center',
-                    padding:'6px 0', borderBottom:'1px solid #0a1a0c'
-                  }}>
-                    <span style={{color:'#8aaa94',fontSize:12}}>→ 改善到 <strong style={{color:'#ccddd4'}}>{name}</strong></span>
-                    <Badge text={`${cnt} 张`} color='#B8943A'/>
-                  </div>
-                ))}
-                {coach?.outsExplain && (
-                  <div style={{color:'#5a8a64',fontSize:11,lineHeight:1.6,marginTop:8,paddingTop:8,borderTop:'1px solid #0a1a0c'}}>
-                    💡 {coach.outsExplain}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── NUTS TAB ── */}
-        {tab==='nuts' && (
-          <div>
-            {!nuts ? (
-              <div style={{color:'#2a4a34',fontSize:13,textAlign:'center',padding:'20px 0',lineHeight:1.8}}>
-                翻牌后显示 Nuts 分析<br/>
-                <span style={{fontSize:11,color:'#1a3020'}}>Nuts = 当前最强可能手牌</span>
-              </div>
-            ) : (
-              <div>
-                <div style={{marginBottom:10}}>
-                  <div style={{color:'#7a9a84',fontSize:11,marginBottom:4}}>当前桌面 Nuts（最强牌型）</div>
-                  <div style={{color:'#FFD700',fontWeight:900,fontSize:22}}>{nuts.n}</div>
-                </div>
-                {nuts.hand?.length>0 && (
-                  <div style={{marginBottom:12}}>
-                    <div style={{color:'#3a5a42',fontSize:11,marginBottom:5}}>达到 Nuts 的底牌示例</div>
-                    <div style={{display:'flex',gap:5}}>
-                      {nuts.hand.map((c,i)=><Card key={i} card={c} size="sm"/>)}
-                    </div>
-                  </div>
-                )}
-                {handInfo && (
-                  <div style={{background:'rgba(255,255,255,0.025)',borderRadius:10,padding:'10px 12px',border:'1px solid #0f2014'}}>
-                    <div style={{color:'#7a9a84',fontSize:11,marginBottom:7}}>你 vs Nuts 差距</div>
-                    <div style={{display:'flex',justifyContent:'space-between',fontSize:13}}>
-                      <div><span style={{color:'#ccddd4',fontWeight:700}}>{handInfo.n}</span> <span style={{color:'#3a5a42',fontSize:10}}>你</span></div>
-                      <div><span style={{color:'#FFD700',fontWeight:700}}>{nuts.n}</span> <span style={{color:'#3a5a42',fontSize:10}}>Nuts</span></div>
-                    </div>
-                    <StrengthBar value={handInfo.t} max={Math.max(nuts.t,1)} color={handInfo.t>=nuts.t?'#44CC77':'#FF8C42'}/>
-                    <div style={{
-                      marginTop:7, fontSize:12, fontWeight:700,
-                      color: handInfo.t>=nuts.t?'#44CC77':handInfo.t>=nuts.t-1?'#FFD700':'#FF8C42'
-                    }}>
-                      {handInfo.t>=nuts.t?'🏆 你已是 Nuts！':handInfo.t>=nuts.t-1?'⬆ 接近最强牌':'▼ 与 Nuts 有差距'}
-                    </div>
-                  </div>
-                )}
-                {coach?.nutsExplain && (
-                  <div style={{color:'#5a8a64',fontSize:11,lineHeight:1.6,marginTop:8,paddingTop:8,borderTop:'1px solid #0a1a0c'}}>
-                    💡 {coach.nutsExplain}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── REVIEW TAB ── */}
-        {tab==='review' && (
-          <div>
-            {handHistory.length === 0 && (
-              <div style={{textAlign:'center',padding:'20px 0',color:'#2a4a34',fontSize:12,lineHeight:1.8}}>
-                完成一局后在此复盘<br/>
-                <span style={{fontSize:10,color:'#1a3020'}}>记录每局 AI 决策逻辑</span>
-              </div>
-            )}
-            {handHistory.map((h, hi) => (
-              <div key={hi} style={{
-                background:'rgba(255,255,255,0.02)', border:'1px solid #0f1f10',
-                borderRadius:11, padding:'10px 12px', marginBottom:8
-              }}>
-                <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
-                  <span style={{color:'#B8943A',fontWeight:800,fontSize:12}}>第 {h.handNum} 局</span>
-                  <div style={{display:'flex',gap:3,flexWrap:'wrap'}}>
-                    {(h.comm||[]).map((c,ci)=>(
-                      <span key={ci} style={{
-                        background:'#FFFCF0', borderRadius:3, padding:'1px 4px',
-                        fontSize:9, fontWeight:700,
-                        color:['♥','♦'].includes(c.suit)?'#C81010':'#111'
-                      }}>{c.value}{c.suit}</span>
-                    ))}
-                  </div>
-                </div>
-                <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:7}}>
-                  <span style={{color:'#3a5a42',fontSize:10,flexShrink:0}}>你的牌：</span>
-                  {(h.playerCards||[]).map((c,ci)=>(
-                    <span key={ci} style={{
-                      background:'#FFFCF0', borderRadius:3, padding:'1px 5px',
-                      fontSize:10, fontWeight:800,
-                      color:['♥','♦'].includes(c.suit)?'#C81010':'#111'
-                    }}>{c.value}{c.suit}</span>
-                  ))}
-                  {h.winner && (
-                    <span style={{marginLeft:'auto',color:h.winner==='player'?'#44CC77':'#FF6655',fontSize:10,fontWeight:700}}>
-                      {h.winner==='player'?'🏆 赢':'❌ 输'}
-                    </span>
-                  )}
-                </div>
-                {(h.ais||[]).filter(a=>(a.decisionLog||[]).length>0).map(a=>(
-                  <div key={a.id} style={{borderTop:'1px solid #0a180b',paddingTop:5,marginTop:5}}>
-                    <div style={{display:'flex',alignItems:'center',gap:5,marginBottom:3}}>
-                      <span style={{fontSize:11}}>{a.emoji}</span>
-                      <span style={{color:a.color,fontSize:10,fontWeight:700}}>{a.name}</span>
-                      {a.folded && <span style={{color:'#FF5544',fontSize:9}}>弃牌</span>}
-                    </div>
-                    {(a.decisionLog||[]).map((d,di)=>(
-                      <div key={di} style={{display:'flex',gap:5,fontSize:9,lineHeight:1.6,marginBottom:2,paddingLeft:4}}>
-                        <span style={{
-                          color:d.action.startsWith('raise')?'#FFD700':d.action==='fold'?'#FF5544':d.action==='check'?'#7a9a84':'#44CC77',
-                          fontWeight:700,flexShrink:0
-                        }}>{{pre:'翻前',flop:'翻牌',turn:'转牌',river:'河牌'}[d.street]||d.street}</span>
-                        <span style={{color:'#5a7a64'}}>{(d.why||d.action).slice(0,80)}</span>
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
-        )}
-
-      </div>
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════
-// MAIN
-// ══════════════════════════════════════════
-function PokerApp() {
-  // ── UI State ──
-  const [phase, setPhase]               = useState('lobby');
-  const [playerCards, setPlayerCards]   = useState([]);
-  const [comm, setComm]                 = useState([]);
-  const [pot, setPot]                   = useState(0);
-  const [curBet, setCurBet]             = useState(0);   // highest bet this street
-  const [playerBet, setPlayerBet]       = useState(0);   // player's contribution this street
-  const [playerChips, setPlayerChips]   = useState(2000);
-  const [playerFolded, setPlayerFolded] = useState(false);
-  const [ais, setAis]                   = useState(AI_CONFIGS.map(a=>({...a,cards:[],bet:0,folded:false,thinking:false,lastAction:null,comment:'',showCards:false,pos:null})));
-  const [result, setResult]             = useState(null);
-  const [waiting, setWaiting]           = useState(false);
-  const [handNum, setHandNum]           = useState(0);
-  const [raiseAmt, setRaiseAmt]         = useState(60);
-  const [raiseBtnLabel, setRaiseBtnLabel] = useState(null); // tracks which quick-btn is active
-  const [tab, setTab]                   = useState('analysis');
-  const [equity, setEquity]             = useState(null);
-  const [outs, setOuts]                 = useState(null);
-  const [nuts, setNuts]                 = useState(null);
-  const [coach, setCoach]               = useState(null);
-  const [coachLoading, setCoachLoading] = useState(false);
-  const [betAdvice, setBetAdvice]       = useState(null);
-  const [dealerPos, setDealerPos]       = useState(0);
-  const [currentPlayerPos, setCurrentPlayerPos] = useState(null);
-  const [showCoach, setShowCoach]               = useState(true);
-  const [aiDetail, setAiDetail]                 = useState(null);
-  const [handHistory, setHandHistory]           = useState([]); // [{hand, result, streets}]
-
-  // ── Refs (always current values, safe in async) ──
-  const deckRef       = useRef([]);
-  const potRef        = useRef(0);
-  const commRef       = useRef([]);
-  const aisRef        = useRef(ais);
-  const dealerPosRef  = useRef(0);
-  // orbitRef tracks the live betting-round state
-  // toAct: array of seat indices still to act (0-4=AIs, 5=player)
-  // curBet: highest bet placed this street
-  // playerStreetBet: how much player has put in this street
-  // pFolded: whether the player has folded
-  const orbitRef = useRef({ toAct:[], curBet:0, playerStreetBet:0, pFolded:false });
-
-  const PLAYER_SEAT = 5;
-  const SB = 10, BB = 20;
-
-  useEffect(()=>{ aisRef.current = ais; }, [ais]);
-
-  const activeAiCount = ais.filter(a=>!a.folded).length;
-
-  // ── Analysis: recalc whenever cards change ──
-  useEffect(()=>{
-    if(playerCards.length<2) return;
-    const eq = calcEquity(playerCards, comm, activeAiCount||1);
-    setEquity(eq);
-    if(comm.length>=3){
-      const o = calcOuts(playerCards, comm);
-      const n = calcNuts(comm);
-      setOuts(o); setNuts(n);
-      const hi = evalHand([...playerCards,...comm]);
-      const ba = getBetAdvice(eq, o, hi.t, Math.max(0, orbitRef.current.curBet - orbitRef.current.playerStreetBet), potRef.current, playerChips, comm);
-      setBetAdvice(ba);
-    } else {
-      setOuts(null); setNuts(null); setBetAdvice(null);
-    }
-  }, [playerCards, comm, curBet]);
-
-  // ── Coach: fetch AI analysis on each new street ──
-  useEffect(()=>{
-    if(['lobby','showdown','preflop'].includes(phase) || playerCards.length<2) return;
-    setCoachLoading(true); setCoach(null);
-    const eq = calcEquity(playerCards, comm, activeAiCount||1);
-    const o  = comm.length>=3 ? calcOuts(playerCards, comm) : null;
-    const n  = comm.length>=3 ? calcNuts(comm) : null;
-    getCoachAnalysis(playerCards, comm, eq, o, n, potRef.current, orbitRef.current.curBet, orbitRef.current.playerStreetBet, playerChips)
-      .then(c=>{ setCoach(c); setCoachLoading(false); })
-      .catch(()=>setCoachLoading(false));
-  }, [phase]);
-
-  // ══════════════════════════════════════════
-  // BETTING ORBIT ENGINE
-  // ══════════════════════════════════════════
-
-  // Build the ordered seat list for a betting round.
-  // Preflop:  action starts at UTG = (dealer+3)%6, ends at BB (dealer+2).
-  // Postflop: action starts at first active seat left of dealer = (dealer+1)%6.
-  function buildActionOrder(dealer, isPreflop, curAis, pFolded) {
-    const seats = [];
-    const start = isPreflop ? dealer + 3 : dealer + 1;
-    for(let i = 0; i < 6; i++) {
-      const s = (start + i) % 6;
-      if(s === PLAYER_SEAT) {
-        if(!pFolded) seats.push(s);
-      } else {
-        const ai = curAis[s];
-        if(ai && !ai.folded) seats.push(s);
-      }
-    }
-    return seats;
-  }
-
-  // After a raise: everyone except the raiser must act again.
-  // Seats are ordered starting from the seat immediately after the raiser.
-  function rebuildAfterRaise(raiserSeat, curAis, pFolded) {
-    const seats = [];
-    for(let i = 1; i <= 5; i++) {
-      const s = (raiserSeat + i) % 6;
-      if(s === PLAYER_SEAT) {
-        if(!pFolded) seats.push(s);
-      } else {
-        const ai = curAis[s];
-        if(ai && !ai.folded) seats.push(s);
-      }
-    }
-    return seats;
-  }
-
-  // Core orbit loop. Processes seats in toAct one by one.
-  // When it hits the player's seat it pauses (returns) and waits for a button press.
-  // When toAct is empty the betting round is over → advance the street.
-  async function runOrbit() {
-    const orbit = orbitRef.current;
-
-    while(orbit.toAct.length > 0) {
-      const pFolded = orbit.pFolded;
-      const curAis  = aisRef.current;
-
-      // If only one player remains, end hand immediately
-      const activeTotal = (pFolded ? 0 : 1) + curAis.filter(a=>!a.folded).length;
-      if(activeTotal <= 1) { doShowdown(); return; }
-
-      const seat = orbit.toAct[0];
-
-      // ── Player's turn: pause and show buttons ──
-      if(seat === PLAYER_SEAT) {
-        setCurBet(orbit.curBet);
-        setPlayerBet(orbit.playerStreetBet);
-        setRaiseAmt(Math.min(Math.max(orbit.curBet * 2, BB * 3), playerChips));
-        setWaiting(true);
-        return; // resume when player calls onFold/onCall/onRaise
-      }
-
-      // ── AI's turn ──
-      orbit.toAct.shift();
-      const aiIdx = seat;
-      const ai    = curAis[aiIdx];
-      if(!ai || ai.folded) continue;
-
-      // Thinking animation + personality delay
-      setAis(prev => prev.map((a,j) => j===aiIdx ? {...a, thinking:true} : a));
-      const base = {gpt4:280, gemini:750, llama:180, claude:580, grok:220}[ai.id] || 400;
-      await new Promise(r => setTimeout(r, base + Math.random() * 600));
-
-      let dec;
-      try {
-        dec = getAiMove(ai, commRef.current, potRef.current, orbit.curBet);
-      } catch(e) {
-        console.error('AI decision error:', e);
-        dec = { action:'call', amount:0, comment:'...' };
-      }
-      let up = {...ai, thinking:false};
-
-      if(dec.action === 'fold') {
-        const log = [...(ai.decisionLog||[]), {street:commRef.current.length===0?'pre':commRef.current.length===3?'flop':commRef.current.length===4?'turn':'river', action:'fold', why:dec._why||''}].slice(-8);
-        up = {...up, folded:true, lastAction:'fold', comment:dec.comment, decisionLog:log};
-        const newAis = aisRef.current.map((a,j) => j===aiIdx ? up : a);
-        setAis(newAis); aisRef.current = newAis;
-
-      } else if(dec.action === 'raise' && dec.amount > orbit.curBet) {
-        const rt = Math.min(+dec.amount, ai.chips + ai.bet);
-        const ex = rt - ai.bet;
-        if(ex > 0 && ex <= ai.chips) {
-          // Valid raise → update orbit's curBet and re-open action for everyone else
-          orbit.curBet = rt;
-          const cp = potRef.current + ex;
-          setPot(cp); potRef.current = cp; setCurBet(rt);
-          const logR = [...(ai.decisionLog||[]), {street:commRef.current.length===0?'pre':commRef.current.length===3?'flop':commRef.current.length===4?'turn':'river', action:`raise ${rt}`, why:dec._why||''}].slice(-8);
-          up = {...up, bet:rt, chips:ai.chips-ex, lastAction:'raise', comment:dec.comment, decisionLog:logR};
-          const newAis = aisRef.current.map((a,j) => j===aiIdx ? up : a);
-          setAis(newAis); aisRef.current = newAis;
-          // Re-open: everyone else (including player if not folded) must act again
-          orbit.toAct = rebuildAfterRaise(aiIdx, aisRef.current, orbit.pFolded);
-        } else {
-          // Can't afford the raise → call instead
-          const tc = Math.min(Math.max(0, orbit.curBet - ai.bet), ai.chips);
-          const cp = potRef.current + tc;
-          setPot(cp); potRef.current = cp;
-          up = {...up, bet:ai.bet+tc, chips:ai.chips-tc, lastAction:'call', comment:dec.comment};
-          const newAis = aisRef.current.map((a,j) => j===aiIdx ? up : a);
-          setAis(newAis); aisRef.current = newAis;
-        }
-
-      } else {
-        // Call or check
-        const tc = Math.min(Math.max(0, orbit.curBet - ai.bet), ai.chips);
-        const cp = potRef.current + tc;
-        setPot(cp); potRef.current = cp;
-        const isCheck = tc === 0;
-        const logC = [...(ai.decisionLog||[]), {street:commRef.current.length===0?'pre':commRef.current.length===3?'flop':commRef.current.length===4?'turn':'river', action:isCheck?'check':'call', why:dec._why||''}].slice(-8);
-        up = {...up, bet:ai.bet+tc, chips:ai.chips-tc, lastAction:'call', comment: isCheck ? '' : dec.comment, decisionLog:logC};
-        const newAis = aisRef.current.map((a,j) => j===aiIdx ? up : a);
-        setAis(newAis); aisRef.current = newAis;
-      }
-    }
-
-    // All seats acted and all bets are equal → advance to next street
-    advanceStreet();
-  }
-
-  // Deal community cards and start the next betting round (or showdown).
-  function advanceStreet() {
-    const orbit  = orbitRef.current;
-    const pFolded = orbit.pFolded;
-    const dealer = dealerPosRef.current;
-
-    // Check if hand is already over
-    const activeTotal = (pFolded ? 0 : 1) + aisRef.current.filter(a=>!a.folded).length;
-    if(activeTotal <= 1) { doShowdown(); return; }
-
-    // Reset all street bets
-    const resetAis = aisRef.current.map(a => ({...a, bet:0}));
-    setAis(resetAis); aisRef.current = resetAis;
-    setPlayerBet(0); setCurBet(0);
-    orbit.playerStreetBet = 0; orbit.curBet = 0;
-
-    const deck = deckRef.current;
-    const cur  = commRef.current;
-
-    if(cur.length === 0) {
-      // Deal flop
-      const flop = [deck[0],deck[1],deck[2]]; deckRef.current = deck.slice(3);
-      commRef.current = flop; setComm(flop); setPhase('flop');
-      orbit.toAct = buildActionOrder(dealer, false, aisRef.current, pFolded);
-      runOrbit();
-    } else if(cur.length === 3) {
-      // Deal turn
-      const turn = [deck[0]]; deckRef.current = deck.slice(1);
-      const newComm = [...cur,...turn]; commRef.current = newComm; setComm(newComm); setPhase('turn');
-      orbit.toAct = buildActionOrder(dealer, false, aisRef.current, pFolded);
-      runOrbit();
-    } else if(cur.length === 4) {
-      // Deal river
-      const river = [deck[0]]; deckRef.current = deck.slice(1);
-      const newComm = [...cur,...river]; commRef.current = newComm; setComm(newComm); setPhase('river');
-      orbit.toAct = buildActionOrder(dealer, false, aisRef.current, pFolded);
-      runOrbit();
-    } else {
-      // All 5 community cards dealt → showdown
-      doShowdown();
-    }
-  }
-
-  // ══════════════════════════════════════════
-  // START HAND
-  // ══════════════════════════════════════════
-  async function startHand() {
-    const newDealer = (dealerPosRef.current + 1) % 6;
-    setDealerPos(newDealer); dealerPosRef.current = newDealer;
-
-    const sbSeat = (newDealer + 1) % 6;
-    const bbSeat = (newDealer + 2) % 6;
-
-    const deck = shuffle(fullDeck()); let idx = 0;
-    const pCards = [deck[idx++], deck[idx++]];
-    const chipMap = Object.fromEntries(aisRef.current.map(a => [a.id, a.chips]));
-
-    // Build AIs: post blinds, assign position tokens
-    const newAis = AI_CONFIGS.map((cfg, i) => {
-      let pos = null;
-      if(i === newDealer) pos = 'D';
-      else if(i === sbSeat) pos = 'SB';
-      else if(i === bbSeat) pos = 'BB';
-      const isSB = i === sbSeat, isBB = i === bbSeat;
-      const prev = chipMap[cfg.id] ?? cfg.chips;
-      return {
-        ...cfg,
-        chips: prev - (isSB?SB:0) - (isBB?BB:0),
-        bet:   isSB?SB : isBB?BB : 0,
-        cards: [deck[idx++], deck[idx++]],
-        folded:false, thinking:false,
-        lastAction: (isSB||isBB) ? 'blind' : null,
-        comment: isSB?`小盲 ${SB}` : isBB?`大盲 ${BB}` : '',
-        showCards:false, pos
-      };
-    });
-
-    // Player's position & blind obligation
-    let playerPos = null;
-    if(PLAYER_SEAT === newDealer) playerPos = 'D';
-    else if(PLAYER_SEAT === sbSeat) playerPos = 'SB';
-    else if(PLAYER_SEAT === bbSeat) playerPos = 'BB';
-    const playerIsSB = PLAYER_SEAT === sbSeat;
-    const playerIsBB = PLAYER_SEAT === bbSeat;
-    const playerBlind = playerIsSB ? SB : playerIsBB ? BB : 0;
-
-    deckRef.current = deck.slice(idx);
-    const hn = handNum + 1; setHandNum(hn);
-    setPlayerCards(pCards); setAis(newAis); aisRef.current = newAis;
-    setComm([]); commRef.current = [];
-    setPlayerFolded(false); setResult(null); setWaiting(false);
-    setCoach(null); setEquity(null); setOuts(null); setNuts(null); setBetAdvice(null);
-    setTab('analysis'); setCurrentPlayerPos(playerPos); setRaiseBtnLabel(null);
-
-    const initPot = SB + BB;
-    setPot(initPot); potRef.current = initPot;
-    setPlayerBet(playerBlind); setCurBet(BB);
-    setPlayerChips(p => p - playerBlind);
-    setPhase('preflop');
-
-    // Set up preflop orbit: action starts at UTG (dealer+3), ends at BB (dealer+2)
-    // BB already has BB chips in, so their playerStreetBet = BB (or 0 if it's another player)
-    orbitRef.current = {
-      toAct: buildActionOrder(newDealer, true, newAis, false),
-      curBet: BB,
-      playerStreetBet: playerBlind,
-      pFolded: false
-    };
-
-    await runOrbit();
-  }
-
-  // ══════════════════════════════════════════
-  // PLAYER ACTIONS (resume orbit after button press)
-  // ══════════════════════════════════════════
-  async function onFold() {
-    if(!waiting || playerFolded) return;
-    setWaiting(false);
-    setPlayerFolded(true);
-    const orbit = orbitRef.current;
-    orbit.pFolded = true;
-    orbit.toAct = orbit.toAct.filter(s => s !== PLAYER_SEAT);
-    // If only one remains, end immediately
-    if(aisRef.current.filter(a=>!a.folded).length <= 1) { doShowdown(); return; }
-    await runOrbit();
-  }
-
-  async function onCall() {
-    if(!waiting || playerFolded) return;
-    setWaiting(false);
-    const orbit = orbitRef.current;
-    const tc = Math.min(Math.max(0, orbit.curBet - orbit.playerStreetBet), playerChips);
-    orbit.playerStreetBet += tc;
-    setPlayerBet(orbit.playerStreetBet);
-    setPlayerChips(p => p - tc);
-    const np = potRef.current + tc; setPot(np); potRef.current = np;
-    orbit.toAct = orbit.toAct.filter(s => s !== PLAYER_SEAT);
-    await runOrbit();
-  }
-
-  async function onRaise() {
-    if(!waiting || playerFolded) return;
-    const orbit   = orbitRef.current;
-    const total   = Math.min(raiseAmt, playerChips);
-    if(total <= orbit.curBet) return; // must be a valid raise
-    setWaiting(false);
-    const extra = total - orbit.playerStreetBet;
-    setPlayerChips(p => p - extra);
-    orbit.playerStreetBet = total;
-    setPlayerBet(total);
-    orbit.curBet = total;
-    setCurBet(total);
-    const np = potRef.current + extra; setPot(np); potRef.current = np;
-    // Re-open: all other active seats must respond
-    orbit.toAct = rebuildAfterRaise(PLAYER_SEAT, aisRef.current, orbit.pFolded);
-    await runOrbit();
-  }
-
-  // ══════════════════════════════════════════
-  // SHOWDOWN
-  // ══════════════════════════════════════════
-  function doShowdown() {
-    const pFolded   = orbitRef.current.pFolded;
-    const commCards = commRef.current;
-    setPhase('showdown'); setWaiting(false);
-    setAis(prev => prev.map(a => ({...a, showCards:!a.folded})));
-    const fp = potRef.current;
-
-    const activePlayers = [
-      ...(!pFolded ? [{id:'player',name:'你',score:evalHand([...playerCards,...commCards]),cards:playerCards}] : []),
-      ...aisRef.current.filter(a=>!a.folded).map(a=>({id:a.id,name:a.name,color:a.color,score:evalHand([...a.cards,...commCards]),cards:a.cards}))
-    ];
-
-    if(activePlayers.length === 0) { setPot(0); potRef.current=0; return; }
-
-    if(activePlayers.length === 1) {
-      // Everyone else folded
-      const w = activePlayers[0];
-      if(w.id === 'player') { setPlayerChips(p=>p+fp); setResult({winner:'player',amount:fp,handName:'对手全部弃牌'}); }
-      else { setAis(prev=>prev.map(a=>a.id===w.id?{...a,chips:a.chips+fp}:a)); setResult({winner:w.name,color:w.color,amount:fp,handName:'对手弃牌'}); }
-    } else {
-      activePlayers.sort((a,b) => b.score.r - a.score.r);
-      const w = activePlayers[0];
-      if(w.id === 'player') { setPlayerChips(p=>p+fp); setResult({winner:'player',amount:fp,handName:w.score.n}); }
-      else { setAis(prev=>prev.map(a=>a.id===w.id?{...a,chips:a.chips+fp}:a)); setResult({winner:w.name,color:w.color,amount:fp,handName:w.score.n}); }
-    }
-    setPot(0); potRef.current = 0;
-
-    // Record to hand history
-    setHandHistory(prev => [{
-      handNum: handNum,
-      comm: commRef.current,
-      result: null,  // will be set by caller when result is known
-      ais: aisRef.current.map(a => ({id:a.id, name:a.name, emoji:a.emoji, color:a.color, cards:a.cards, folded:a.folded, chips:a.chips, decisionLog:a.decisionLog||[]})),
-      playerCards: playerCards,
-      pot: potRef.current
-    }, ...prev].slice(0, 10));
-  }
-
-  // ── Derived ──
-  const canCheck  = curBet===0||curBet===playerBet;
-  const toCall    = Math.min(Math.max(0,curBet-playerBet),playerChips);
-  const handInfo  = playerCards.length>0 ? evalHand([...playerCards,...comm]) : null;
-  const PHASE_CN  = {lobby:'大厅',preflop:'翻牌前',flop:'翻牌圈',turn:'转牌圈',river:'河牌圈',showdown:'摊牌'};
-  const eqColor   = equity==null?'#888':equity>=60?'#44CC77':equity>=42?'#FFD700':'#FF6655';
-
-  return (
-    <div style={{maxWidth:430, margin:'0 auto', minHeight:'100vh', background:'#060A07',
-      display:'flex', flexDirection:'column', fontFamily:"-apple-system,'PingFang SC',sans-serif",
-      userSelect:'none', overflowX:'hidden'}}>
-      <style>{`
-        @keyframes blink{0%,100%{opacity:.2}50%{opacity:1}}
-        @keyframes deal{from{opacity:0;transform:translateY(-28px) scale(.8) rotate(-4deg)}to{opacity:1;transform:none}}
-        @keyframes pop{from{opacity:0;transform:scale(.75)}to{opacity:1;transform:scale(1)}}
-        @keyframes slidein{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
-        @keyframes foldback{from{transform:translateX(0) scale(1);opacity:0.9} to{transform:translateX(14px) scale(0.75);opacity:0}}
-        .deal{animation:deal .4s cubic-bezier(.34,1.5,.64,1) both}
-        .pop{animation:pop .4s cubic-bezier(.34,1.5,.64,1) both}
-        .in{animation:slidein .3s ease both}
-        .seat-folded-cards{animation:foldback .45s cubic-bezier(.4,0,.6,1) forwards}
-        button:active{opacity:.75;transition:opacity .08s}
-        ::-webkit-scrollbar{width:3px}
-        ::-webkit-scrollbar-thumb{background:#1a3020;border-radius:2px}
-      `}</style>
-
-```
-  {/* ── TOP BAR ── */}
-  <div style={{background:'#080D09',borderBottom:'1.5px solid #0D1E0F',
-    padding:'11px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+// ═══════════════════════════════════════
+// RENDER FUNCTIONS
+// ═══════════════════════════════════════
+function renderTopBar(){
+  const PHASE_CN={lobby:'大厅',preflop:'翻牌前',flop:'翻牌圈',turn:'转牌圈',river:'河牌圈',showdown:'摊牌'};
+  document.getElementById('topbar').innerHTML=`
+  <div style="background:#080D09;border-bottom:1.5px solid #0D1E0F;padding:11px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
     <div>
-      <div style={{color:'#B8943A',fontWeight:900,fontSize:17,letterSpacing:3}}>POKER</div>
-      <div style={{color:'#2A4030',fontSize:9,letterSpacing:1.5,marginTop:1}}>{PHASE_CN[phase]||phase} · 第{handNum}局 · 盲注 10/20</div>
+      <div style="color:#B8943A;font-weight:900;font-size:17px;letter-spacing:3px">POKER</div>
+      <div style="color:#2A4030;font-size:9px;letter-spacing:1.5px;margin-top:1px">${PHASE_CN[S.phase]||S.phase} · 第${S.handNum}局 · 盲注 10/20</div>
     </div>
-    <div style={{display:'flex',gap:10,alignItems:'center'}}>
-      {pot>0 && (
-        <div style={{textAlign:'right'}}>
-          <div style={{color:'#3A5A42',fontSize:9,letterSpacing:.5}}>底 池</div>
-          <div style={{color:'#B8943A',fontWeight:900,fontSize:17,lineHeight:1.1}}>◈ {pot.toLocaleString()}</div>
-        </div>
-      )}
-      <div style={{textAlign:'right'}}>
-        <div style={{color:'#3A5A42',fontSize:9,letterSpacing:.5}}>筹 码</div>
-        <div style={{color:'#44CC77',fontWeight:900,fontSize:17,lineHeight:1.1}}>◈ {playerChips.toLocaleString()}</div>
+    <div style="display:flex;gap:10px;align-items:center">
+      ${S.pot>0?`<div style="text-align:right"><div style="color:#3A5A42;font-size:9px;letter-spacing:.5px">底 池</div><div style="color:#B8943A;font-weight:900;font-size:17px;line-height:1.1">◈ ${S.pot.toLocaleString()}</div></div>`:''}
+      <div style="text-align:right">
+        <div style="color:#3A5A42;font-size:9px;letter-spacing:.5px">筹 码</div>
+        <div style="color:#44CC77;font-weight:900;font-size:17px;line-height:1.1">◈ ${S.playerChips.toLocaleString()}</div>
       </div>
-      {/* Coach toggle button */}
-      <button onClick={()=>setShowCoach(v=>!v)} style={{
-        flexShrink:0,
-        background: showCoach ? 'rgba(184,148,58,0.15)' : 'rgba(68,180,100,0.12)',
-        border: `1.5px solid ${showCoach ? 'rgba(184,148,58,0.4)' : 'rgba(68,180,100,0.35)'}`,
-        borderRadius:10, padding:'6px 9px',
-        cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', gap:2,
-        transition:'all .2s'
-      }}>
-        <span style={{fontSize:15, lineHeight:1}}>{showCoach ? '💡' : '🎯'}</span>
-        <span style={{
-          fontSize:8, fontWeight:700, letterSpacing:.5,
-          color: showCoach ? '#B8943A' : '#44CC77'
-        }}>{showCoach ? '提示开' : '训练中'}</span>
+      <button onclick="toggleCoach()" style="background:${S.showCoach?'rgba(184,148,58,.15)':'rgba(68,180,100,.12)'};border:1.5px solid ${S.showCoach?'rgba(184,148,58,.4)':'rgba(68,180,100,.35)'};border-radius:10px;padding:6px 9px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px">
+        <span style="font-size:15px;line-height:1">${S.showCoach?'💡':'🎯'}</span>
+        <span style="font-size:8px;font-weight:700;letter-spacing:.5px;color:${S.showCoach?'#B8943A':'#44CC77'}">${S.showCoach?'提示开':'训练中'}</span>
       </button>
     </div>
-  </div>
-
-  {/* ── AI SEATS (scrollable row) ── */}
-  <div style={{padding:'8px 10px 4px',background:'rgba(0,0,0,0.35)',flexShrink:0}}>
-    <div style={{overflowX:'auto',display:'flex',gap:7,paddingBottom:4}}>
-      {ais.map((ai)=><AiSeat key={ai.id} ai={ai} onClick={()=>setAiDetail(ai)}/>)}
-    </div>
-  </div>
-
-  {/* ── FELT TABLE ── */}
-  <div style={{
-    margin:'6px 10px',flexShrink:0,
-    background:'radial-gradient(ellipse at 50% 40%, #174822 0%, #0D3016 45%, #081A0C 100%)',
-    border:'2.5px solid #174A20', borderRadius:20,
-    padding:'14px 12px',
-    display:'flex',flexDirection:'column',alignItems:'center',gap:10,
-    boxShadow:'0 0 60px rgba(0,80,0,0.12),inset 0 0 40px rgba(0,0,0,0.45)',
-    minHeight:135, position:'relative'
-  }}>
-    {/* Community cards */}
-    <div style={{display:'flex',gap:6,alignItems:'center'}}>
-      {[0,1,2,3,4].map(i=>(
-        <div key={i} className={comm[i]?'deal':''} style={{animationDelay:`${i*.08}s`}}>
-          <Card card={comm[i]||null} size="md"/>
-        </div>
-      ))}
-    </div>
-
-    {/* Pot badge */}
-    {pot>0 && (
-      <div style={{
-        background:'rgba(0,0,0,0.55)',border:'1px solid rgba(184,148,58,0.35)',
-        borderRadius:22,padding:'4px 16px',
-        color:'#B8943A',fontSize:13,fontWeight:800,letterSpacing:.5
-      }}>
-        ♛ 底池 {pot.toLocaleString()}
-      </div>
-    )}
-
-    {/* Result overlay */}
-    {result && (
-      <div className="pop" style={{
-        background:'rgba(4,8,5,0.93)',
-        border:`2px solid ${result.winner==='player'?'#44CC77':result.color||'#FF6655'}`,
-        borderRadius:16, padding:'14px 24px', textAlign:'center',
-        boxShadow:`0 0 36px ${result.winner==='player'?'rgba(68,204,119,.25)':'rgba(255,100,80,.2)'}`
-      }}>
-        <div style={{fontSize:32,marginBottom:4}}>{result.winner==='player'?'🎉':'💀'}</div>
-        <div style={{color:result.winner==='player'?'#44CC77':result.color||'#FF8866',
-          fontWeight:900,fontSize:20,marginBottom:4}}>
-          {result.winner==='player'?'你赢了！':`${result.winner} 赢了`}
-        </div>
-        <div style={{color:'#4A6A54',fontSize:12}}>{result.handName} · +{result.amount.toLocaleString()} 筹码</div>
-      </div>
-    )}
-
-    {/* Lobby */}
-    {phase==='lobby' && (
-      <div style={{textAlign:'center',padding:'6px 0'}}>
-        <div style={{fontSize:28,marginBottom:6}}>🃏</div>
-        <div style={{color:'#2A4A34',fontSize:12}}>6人桌 · 与五大 AI 同台竞技</div>
-      </div>
-    )}
-  </div>
-
-  {/* ── COACH PANEL ── */}
-  {/* ══════════════════════════════════════════
-       PLAYER HAND — always above coach panel
-       ══════════════════════════════════════════ */}
-  {phase !== 'lobby' && (
-    <div style={{
-      margin:'4px 10px 0', padding:'10px 14px',
-      background:'#080D09', border:'1.5px solid #0D1E0F',
-      borderRadius:16, flexShrink:0,
-      display:'flex', alignItems:'center', gap:12
-    }}>
-      {/* Cards */}
-      <div style={{display:'flex',gap:8,flexShrink:0}}>
-        {playerCards.length > 0
-          ? playerCards.map((c,i) => (
-              <div key={i} className="deal" style={{animationDelay:`${i*.1}s`}}>
-                <Card card={c} size="md"/>
-              </div>
-            ))
-          : [0,1].map(i => (
-              <div key={i} style={{width:54,height:76,borderRadius:6,
-                border:'1.5px dashed #0D1E0F',background:'rgba(0,0,0,0.15)'}}/>
-            ))
-        }
-      </div>
-
-      {/* Hand info */}
-      <div style={{flex:1,minWidth:0}}>
-        <div style={{
-          display:'flex', alignItems:'center', gap:7, marginBottom:5,
-          flexWrap:'wrap'
-        }}>
-          <span style={{color:'#3A5A42',fontSize:10,letterSpacing:.5}}>你的底牌</span>
-          {currentPlayerPos && <PosToken pos={currentPlayerPos}/>}
-        </div>
-        {playerFolded && (
-          <div style={{color:'#FF5544',fontSize:13,fontWeight:800}}>已弃牌</div>
-        )}
-        {!playerFolded && handInfo && showCoach && (
-          <Badge text={handInfo.n} color='#B8943A'/>
-        )}
-        {!playerFolded && handInfo && !showCoach && (
-          <Badge text='? ? ?' color='#2A5A34'/>
-        )}
-        {/* Chips + current bet info */}
-        <div style={{marginTop:6,display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
-          <span style={{color:'#44CC77',fontSize:12,fontWeight:700}}>◈ {playerChips.toLocaleString()}</span>
-          {playerBet > 0 && (
-            <span style={{color:'#B8943A',fontSize:11}}>已下注 {playerBet}</span>
-          )}
-          {waiting && !playerFolded && curBet > 0 && curBet > playerBet && (
-            <span style={{color:'#88BBFF',fontSize:11}}>需补 {Math.min(curBet-playerBet,playerChips)}</span>
-          )}
-        </div>
-      </div>
-    </div>
-  )}
-
-  {/* ══════════════════════════════════════════
-       ACTION BAR — sticky at bottom
-       ══════════════════════════════════════════ */}
-  <div style={{
-    margin:'4px 10px 14px', flexShrink:0,
-    background:'#080D09', border:'1.5px solid #0D1E0F',
-    borderRadius:16, padding:'12px 14px'
-  }}>
-    {waiting && !playerFolded && phase !== 'showdown' ? (
-      <div style={{display:'flex',flexDirection:'column',gap:9}}>
-
-        {/* ── Row 1: Fold + Check/Call ── */}
-        <div style={{display:'flex',gap:8}}>
-          <button onClick={onFold} style={{
-            flex:1, padding:'13px 6px',
-            background:'rgba(180,50,40,0.12)', border:'1.5px solid rgba(180,50,40,0.3)',
-            borderRadius:12, color:'#EE5544', fontSize:15, fontWeight:800, cursor:'pointer',
-            letterSpacing:.3
-          }}>弃牌</button>
-          <button onClick={onCall} style={{
-            flex:2.2, padding:'13px 6px',
-            background: canCheck ? 'rgba(40,140,70,0.15)' : 'rgba(40,100,200,0.15)',
-            border:`1.5px solid ${canCheck?'rgba(40,140,70,0.4)':'rgba(40,100,200,0.4)'}`,
-            borderRadius:12,
-            color: canCheck ? '#44CC77' : '#88BBFF',
-            fontSize:15, fontWeight:800, cursor:'pointer', letterSpacing:.3
-          }}>
-            {canCheck ? '过牌 ✓' : `跟注 ◈ ${toCall}`}
-          </button>
-        </div>
-
-        {/* ── Row 2: Raise panel ── */}
-        <div style={{
-          background:'rgba(184,148,58,0.05)', border:'1px solid rgba(184,148,58,0.18)',
-          borderRadius:12, padding:'10px 10px 9px', display:'flex', flexDirection:'column', gap:8
-        }}>
-          {/* Quick fraction buttons — active tracked by label, not by amount */}
-          {(()=>{
-            const minRaise = Math.max(curBet * 2, BB * 2);
-            const btns = [
-              {label:'1/4', raw: Math.max(Math.round(pot*0.25/5)*5, 5)},
-              {label:'1/2', raw: Math.max(Math.round(pot*0.5/5)*5, 10)},
-              {label:'3/4', raw: Math.max(Math.round(pot*0.75/5)*5, 15)},
-              {label:'满池', raw: Math.max(Math.round(pot/5)*5, 20)},
-              {label:'全押', raw: playerChips},
-            ];
-            return (
-              <div style={{display:'flex',gap:5}}>
-                {btns.map(({label,raw})=>{
-                  const clickVal = Math.min(Math.max(raw, minRaise), playerChips);
-                  const showAmt  = clickVal >= 1000 ? `${(clickVal/1000).toFixed(1)}k` : String(clickVal);
-                  const active   = raiseBtnLabel === label;
-                  const grey     = raw < minRaise && label !== '全押';
-                  return (
-                    <button key={label} onClick={()=>{
-                      setRaiseBtnLabel(label);
-                      setRaiseAmt(clickVal);
-                    }} style={{
-                      flex:1, padding:'6px 2px',
-                      background: active ? 'rgba(184,148,58,0.38)' : 'rgba(184,148,58,0.07)',
-                      border:`1.5px solid ${active?'#B8943A':grey?'rgba(100,80,20,0.15)':'rgba(184,148,58,0.22)'}`,
-                      borderRadius:8,
-                      color: active ? '#FFD060' : grey ? '#4A3A18' : '#8A7A40',
-                      fontSize:9, fontWeight:700, cursor:'pointer',
-                      transition:'all .12s', lineHeight:1.4, textAlign:'center'
-                    }}>
-                      <div>{label}</div>
-                      <div style={{opacity:0.75}}>{label==='全押'?'ALL IN':showAmt}</div>
-                    </button>
-                  );
-                })}
-              </div>
-            );
-          })()}
-
-          {/* − amount + raise */}
-          <div style={{display:'flex',gap:6,alignItems:'center'}}>
-            <button
-              onClick={()=>{ setRaiseBtnLabel(null); setRaiseAmt(a=>Math.max(Math.max(curBet*2,BB*2), Math.round((a-BB)/5)*5)); }}
-              style={{
-                width:40,height:40,borderRadius:9,flexShrink:0,
-                background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.1)',
-                color:'#9A9A7A',fontSize:20,fontWeight:700,cursor:'pointer',lineHeight:1
-              }}>−</button>
-
-            <div style={{
-              flex:1, height:40, borderRadius:9, position:'relative',
-              background:'rgba(0,0,0,0.4)', border:'1.5px solid rgba(184,148,58,0.3)',
-              display:'flex', alignItems:'center', justifyContent:'center'
-            }}>
-              <span style={{color:'#6A5A28',fontSize:12,position:'absolute',left:9,top:'50%',transform:'translateY(-50%)'}}>◈</span>
-              <input
-                type="number"
-                value={raiseAmt}
-                onChange={e=>{
-                  const v = parseInt(e.target.value,10);
-                  if(!isNaN(v)) { setRaiseBtnLabel(null); setRaiseAmt(Math.min(Math.max(v,0),playerChips)); }
-                }}
-                style={{
-                  width:'100%', height:'100%', border:'none', outline:'none',
-                  background:'transparent', textAlign:'center',
-                  color:'#FFD060', fontSize:16, fontWeight:900,
-                  paddingLeft:18,
-                  WebkitAppearance:'none', MozAppearance:'textfield'
-                }}
-              />
-            </div>
-
-            <button
-              onClick={()=>{ setRaiseBtnLabel(null); setRaiseAmt(a=>Math.min(Math.round((a+BB)/5)*5, playerChips)); }}
-              style={{
-                width:40,height:40,borderRadius:9,flexShrink:0,
-                background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.1)',
-                color:'#9A9A7A',fontSize:20,fontWeight:700,cursor:'pointer',lineHeight:1
-              }}>+</button>
-
-            <button
-              onClick={onRaise}
-              disabled={raiseAmt <= curBet || raiseAmt > playerChips}
-              style={{
-                height:40, padding:'0 18px', flexShrink:0,
-                background: raiseAmt > curBet
-                  ? 'linear-gradient(135deg,rgba(184,148,58,0.35),rgba(212,175,58,0.55))'
-                  : 'rgba(20,20,20,0.5)',
-                border:`1.5px solid ${raiseAmt>curBet?'#B8943A':'#1A1A1A'}`,
-                borderRadius:9,
-                color: raiseAmt > curBet ? '#FFD060' : '#2A2A1A',
-                fontSize:14, fontWeight:900,
-                cursor: raiseAmt > curBet ? 'pointer' : 'default',
-                letterSpacing:.5
-              }}>加注</button>
-          </div>
-        </div>
-
-      </div>
-
-    ) : (
-      /* Non-action states */
-      <div style={{display:'flex',justifyContent:'center',alignItems:'center',padding:'4px 0'}}>
-        {(phase==='showdown' || result) ? (
-          <button onClick={startHand} style={{
-            padding:'14px 32px',
-            background:'linear-gradient(135deg,#122E18,#1A4422)',
-            border:'1.5px solid rgba(68,170,80,0.35)',
-            borderRadius:13, color:'#66DD77',
-            fontSize:16, fontWeight:900, cursor:'pointer',
-            boxShadow:'0 4px 18px rgba(0,100,30,0.2)', letterSpacing:.5
-          }}>下一局 →</button>
-        ) : phase === 'lobby' ? (
-          <button onClick={startHand} style={{
-            padding:'15px 36px',
-            background:'linear-gradient(135deg,#122E18,#1A4422)',
-            border:'1.5px solid rgba(68,170,80,0.4)',
-            borderRadius:14, color:'#77DD88',
-            fontSize:17, fontWeight:900, cursor:'pointer',
-            boxShadow:'0 5px 24px rgba(0,120,30,0.22)', letterSpacing:1
-          }}>🃏 开始游戏</button>
-        ) : (
-          <div style={{display:'flex',alignItems:'center',gap:8,color:'#2A4A34',fontSize:12,padding:'8px 0'}}>
-            <div style={{display:'flex',gap:3}}>
-              {[0,1,2].map(k=>(
-                <div key={k} style={{width:5,height:5,borderRadius:'50%',
-                  background:'#2A4A34',animation:`blink .8s ${k*.22}s infinite`}}/>
-              ))}
-            </div>
-            AI 行动中…
-          </div>
-        )}
-      </div>
-    )}
-  </div>
-  {/* ══════════════════════════════════════════
-       COACH PANEL (collapsible)
-       ══════════════════════════════════════════ */}
-  {phase!=='lobby' && showCoach && (
-    <CoachPanel
-      tab={tab} setTab={setTab}
-      equity={equity} outs={outs} nuts={nuts}
-      handInfo={handInfo} betAdvice={betAdvice}
-      coach={coach} coachLoading={coachLoading}
-      toCall={toCall} pot={pot} phase={phase} handHistory={handHistory}
-    />
-  )}
-  {/* Training mode slim bar */}
-  {phase!=='lobby' && !showCoach && (
-    <div style={{
-      margin:'4px 10px 0', padding:'7px 14px',
-      background:'rgba(68,180,100,0.06)', border:'1px solid rgba(68,180,100,0.18)',
-      borderRadius:11, display:'flex', alignItems:'center', justifyContent:'space-between',
-      flexShrink:0
-    }}>
-      <div style={{display:'flex',alignItems:'center',gap:8}}>
-        <span style={{fontSize:14}}>🎯</span>
-        <span style={{color:'#44CC77',fontSize:12,fontWeight:700}}>训练模式</span>
-        <span style={{color:'#2A5A34',fontSize:11}}>提示已隐藏</span>
-      </div>
-      {equity!=null && (
-        <span style={{
-          color: equity>=60?'#44CC77':equity>=42?'#FFD700':'#FF6655',
-          fontSize:14, fontWeight:900
-        }}>{equity}%</span>
-      )}
-    </div>
-  )}
-
-
-
-
-  {aiDetail && <AiDetailModal ai={aiDetail} onClose={()=>setAiDetail(null)}/>}
-</div>
-```
-
-);
+  </div>`;
 }
 
-```
-const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(<PokerApp />);
-```
+function renderAiRow(){
+  const row=document.getElementById('ai-row');
+  row.innerHTML=S.ais.map((ai,i)=>{
+    const fold=ai.folded;
+    const w=fold?76:112;
+    const thinking=ai.thinking?`<div style="display:flex;gap:3px;margin-top:5px">${[0,1,2].map(k=>`<div class="thinking-dot" style="background:${ai.color};animation:blink .8s ${k*.22}s infinite"></div>`).join('')}</div>`:'';
+    const actionBadge=(!fold&&ai.lastAction&&ai.lastAction!=='blind')?badge(ai.lastAction==='fold'?'弃牌':ai.lastAction==='raise'?`加注 ${ai.bet}`:'跟注',ai.lastAction==='fold'?'#FF5544':ai.lastAction==='raise'?'#FFD700':'#44CC77'):'';
+    const blindBadge=(!fold&&ai.lastAction==='blind')?badge(ai.comment||'盲注','#5577AA'):'';
+    const comment=(!fold&&ai.comment&&ai.lastAction!=='blind')?`<div style="font-size:10px;color:#5a7a64;font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px;margin-top:2px">"${ai.comment}"</div>`:'';
+    const cards=fold?
+      `<div style="display:flex;gap:3px;margin-bottom:0">${(ai.cards||[]).map(()=>`<div style="width:22px;height:30px;border-radius:4px;background:#0e120e;border:1px solid #111;flex-shrink:0"></div>`).join('')}</div>`:
+      `<div style="display:flex;gap:3px;margin-bottom:6px">${(ai.cards||[]).map(c=>cardHTML(ai.showCards?c:null,!ai.showCards,'sm')).join('')}</div>`;
+    return`<div onclick="showAiDetail(${i})" style="flex:0 0 auto;width:${w}px;background:${fold?'rgba(8,10,8,.7)':'rgba(10,20,14,.95)'};border:1.5px solid ${fold?'#141814':ai.color+'33'};border-radius:12px;padding:${fold?'7px 8px':'8px 10px'};opacity:${fold?.32:1};transition:width .4s,opacity .4s;box-shadow:${ai.thinking?`0 0 22px ${ai.color}44`:''};overflow:hidden;cursor:pointer">
+      <div style="display:flex;align-items:center;gap:5px;margin-bottom:${fold?4:6}px">
+        <span style="font-size:${fold?14:18}px;line-height:1">${ai.emoji}</span>
+        <div style="min-width:0">
+          <div style="display:flex;align-items:center">
+            <div style="color:${ai.color};font-size:${fold?10:12}px;font-weight:800;line-height:1.2;white-space:nowrap">${fold?ai.name.slice(0,6):ai.name}</div>
+            ${!fold?posToken(ai.pos):''}
+          </div>
+          ${!fold?`<div style="color:#3a5a42;font-size:10px;font-weight:600">◈ ${ai.chips.toLocaleString()}</div>`:`<div style="color:#1e2e1e;font-size:9px">弃牌</div>`}
+        </div>
+      </div>
+      ${cards}${actionBadge}${blindBadge}${comment}${thinking}
+    </div>`;
+  }).join('');
+}
 
-  </script>
+function renderFelt(){
+  // Community cards
+  document.getElementById('community-cards').innerHTML=
+    [0,1,2,3,4].map((i,idx)=>`<div class="${S.comm[i]?'deal':''}" style="animation-delay:${idx*.08}s">${cardHTML(S.comm[i]||null,'md')}</div>`).join('');
+
+  // Pot badge
+  document.getElementById('pot-badge').innerHTML=S.pot>0?
+    `<div style="background:rgba(0,0,0,.55);border:1px solid rgba(184,148,58,.35);border-radius:22px;padding:4px 16px;color:#B8943A;font-size:13px;font-weight:800;letter-spacing:.5px">♛ 底池 ${S.pot.toLocaleString()}</div>`:'';
+
+  // Result overlay
+  document.getElementById('result-overlay').innerHTML=S.result?
+    `<div class="pop" style="background:rgba(4,8,5,.93);border:2px solid ${S.result.winner==='player'?'#44CC77':S.result.color||'#FF6655'};border-radius:16px;padding:14px 24px;text-align:center">
+      <div style="font-size:32px;margin-bottom:4px">${S.result.winner==='player'?'🎉':'💀'}</div>
+      <div style="color:${S.result.winner==='player'?'#44CC77':S.result.color||'#FF8866'};font-weight:900;font-size:20px;margin-bottom:4px">${S.result.winner==='player'?'你赢了！':S.result.winner+' 赢了'}</div>
+      <div style="color:#4A6A54;font-size:12px">${S.result.handName} · +${S.result.amount.toLocaleString()} 筹码</div>
+    </div>`:'';
+
+  document.getElementById('lobby-msg').style.display=S.phase==='lobby'?'block':'none';
+}
+
+function renderPlayerHand(){
+  const ph=document.getElementById('player-hand');
+  if(S.phase==='lobby'){ph.innerHTML='';return}
+  const toCall=Math.min(Math.max(0,S.orbit.curBet-S.orbit.playerStreetBet),S.playerChips);
+  const handInfo=S.playerCards.length>0?evalHand([...S.playerCards,...S.comm]):null;
+  ph.innerHTML=`
+  <div style="margin:4px 10px 0;padding:10px 14px;background:#080D09;border:1.5px solid #0D1E0F;border-radius:16px;flex-shrink:0;display:flex;align-items:center;gap:12px">
+    <div style="display:flex;gap:8px;flex-shrink:0">
+      ${S.playerCards.length>0?S.playerCards.map((c,i)=>`<div class="deal" style="animation-delay:${i*.1}s">${cardHTML(c,'md')}</div>`).join(''):
+        [0,1].map(()=>`<div style="width:54px;height:76px;border-radius:6px;border:1.5px dashed #0D1E0F;background:rgba(0,0,0,.15)"></div>`).join('')}
+    </div>
+    <div style="flex:1;min-width:0">
+      <div style="display:flex;align-items:center;gap:7px;margin-bottom:5px;flex-wrap:wrap">
+        <span style="color:#3A5A42;font-size:10px;letter-spacing:.5px">你的底牌</span>
+        ${S.currentPlayerPos?posToken(S.currentPlayerPos):''}
+      </div>
+      ${S.playerFolded?`<div style="color:#FF5544;font-size:13px;font-weight:800">已弃牌</div>`:
+        handInfo&&S.showCoach?badge(handInfo.n,'#B8943A'):
+        handInfo?badge('? ? ?','#2A5A34'):''}
+      <div style="margin-top:6px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <span style="color:#44CC77;font-size:12px;font-weight:700">◈ ${S.playerChips.toLocaleString()}</span>
+        ${S.playerBet>0?`<span style="color:#B8943A;font-size:11px">已下注 ${S.playerBet}</span>`:''}
+        ${S.waiting&&!S.playerFolded&&S.orbit.curBet>0&&S.orbit.curBet>S.orbit.playerStreetBet?`<span style="color:#88BBFF;font-size:11px">需补 ${Math.min(S.orbit.curBet-S.orbit.playerStreetBet,S.playerChips)}</span>`:''}
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderActionBar(){
+  const ab=document.getElementById('action-bar');
+  const canCheck=S.orbit.curBet===0||S.orbit.curBet===S.orbit.playerStreetBet;
+  const toCall=Math.min(Math.max(0,S.orbit.curBet-S.orbit.playerStreetBet),S.playerChips);
+  const minRaise=Math.max(S.orbit.curBet*2,BB*2);
+
+  if(S.waiting&&!S.playerFolded&&S.phase!=='showdown'){
+    const pot=S.pot;
+    const btns=[
+      {label:'1/4',raw:Math.max(Math.round(pot*.25/5)*5,5)},
+      {label:'1/2',raw:Math.max(Math.round(pot*.5/5)*5,10)},
+      {label:'3/4',raw:Math.max(Math.round(pot*.75/5)*5,15)},
+      {label:'满池',raw:Math.max(Math.round(pot/5)*5,20)},
+      {label:'全押',raw:S.playerChips},
+    ];
+    const quickBtns=btns.map(({label,raw})=>{
+      const cv=Math.min(Math.max(raw,minRaise),S.playerChips);
+      const showAmt=cv>=1000?`${(cv/1000).toFixed(1)}k`:String(cv);
+      const active=S.raiseBtnLabel===label;
+      const grey=raw<minRaise&&label!=='全押';
+      return`<button onclick="setQuickRaise('${label}',${cv})" style="flex:1;padding:6px 2px;background:${active?'rgba(184,148,58,.38)':'rgba(184,148,58,.07)'};border:1.5px solid ${active?'#B8943A':grey?'rgba(100,80,20,.15)':'rgba(184,148,58,.22)'};border-radius:8px;color:${active?'#FFD060':grey?'#4A3A18':'#8A7A40'};font-size:9px;font-weight:700;cursor:pointer;line-height:1.4;text-align:center">
+        <div>${label}</div><div style="opacity:.75">${label==='全押'?'ALL IN':showAmt}</div>
+      </button>`;
+    }).join('');
+
+    ab.innerHTML=`
+    <div style="margin:4px 10px 14px;flex-shrink:0;background:#080D09;border:1.5px solid #0D1E0F;border-radius:16px;padding:12px 14px">
+      <div style="display:flex;flex-direction:column;gap:9px">
+        <div style="display:flex;gap:8px">
+          <button onclick="onFold()" style="flex:1;padding:13px 6px;background:rgba(180,50,40,.12);border:1.5px solid rgba(180,50,40,.3);border-radius:12px;color:#EE5544;font-size:15px;font-weight:800;cursor:pointer">弃牌</button>
+          <button onclick="onCall()" style="flex:2.2;padding:13px 6px;background:${canCheck?'rgba(40,140,70,.15)':'rgba(40,100,200,.15)'};border:1.5px solid ${canCheck?'rgba(40,140,70,.4)':'rgba(40,100,200,.4)'};border-radius:12px;color:${canCheck?'#44CC77':'#88BBFF'};font-size:15px;font-weight:800;cursor:pointer">${canCheck?'过牌 ✓':`跟注 ◈ ${toCall}`}</button>
+        </div>
+        <div style="background:rgba(184,148,58,.05);border:1px solid rgba(184,148,58,.18);border-radius:12px;padding:10px 10px 9px;display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;gap:5px">${quickBtns}</div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button onclick="adjRaise(-1)" style="width:40px;height:40px;border-radius:9px;flex-shrink:0;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#9A9A7A;font-size:20px;font-weight:700;cursor:pointer;line-height:1">−</button>
+            <div style="flex:1;height:40px;border-radius:9px;position:relative;background:rgba(0,0,0,.4);border:1.5px solid rgba(184,148,58,.3);display:flex;align-items:center;justify-content:center">
+              <span style="color:#6A5A28;font-size:12px;position:absolute;left:9px">◈</span>
+              <input id="raise-input" type="number" value="${S.raiseAmt}" onchange="setRaiseAmt(this.value)" style="width:100%;height:100%;border:none;outline:none;background:transparent;text-align:center;color:#FFD060;font-size:16px;font-weight:900;padding-left:18px">
+            </div>
+            <button onclick="adjRaise(1)" style="width:40px;height:40px;border-radius:9px;flex-shrink:0;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#9A9A7A;font-size:20px;font-weight:700;cursor:pointer;line-height:1">+</button>
+            <button onclick="onRaise()" ${S.raiseAmt<=S.orbit.curBet||S.raiseAmt>S.playerChips?'disabled':''} style="height:40px;padding:0 18px;flex-shrink:0;background:${S.raiseAmt>S.orbit.curBet?'linear-gradient(135deg,rgba(184,148,58,.35),rgba(212,175,58,.55))':'rgba(20,20,20,.5)'};border:1.5px solid ${S.raiseAmt>S.orbit.curBet?'#B8943A':'#1A1A1A'};border-radius:9px;color:${S.raiseAmt>S.orbit.curBet?'#FFD060':'#2A2A1A'};font-size:14px;font-weight:900;cursor:${S.raiseAmt>S.orbit.curBet?'pointer':'default'};letter-spacing:.5px">加注</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  } else {
+    ab.innerHTML=`
+    <div style="margin:4px 10px 14px;flex-shrink:0;background:#080D09;border:1.5px solid #0D1E0F;border-radius:16px;padding:12px 14px;display:flex;justify-content:center;align-items:center;padding:14px">
+      ${(S.phase==='showdown'||S.result)?
+        `<button onclick="startHand()" style="padding:14px 32px;background:linear-gradient(135deg,#122E18,#1A4422);border:1.5px solid rgba(68,170,80,.35);border-radius:13px;color:#66DD77;font-size:16px;font-weight:900;cursor:pointer;letter-spacing:.5px">下一局 →</button>`:
+        S.phase==='lobby'?
+        `<button onclick="startHand()" style="padding:15px 36px;background:linear-gradient(135deg,#122E18,#1A4422);border:1.5px solid rgba(68,170,80,.4);border-radius:14px;color:#77DD88;font-size:17px;font-weight:900;cursor:pointer;letter-spacing:1px">🃏 开始游戏</button>`:
+        `<div style="display:flex;align-items:center;gap:8px;color:#2A4A34;font-size:12px;padding:8px 0">
+          <div style="display:flex;gap:3px">${[0,1,2].map(k=>`<div style="width:5px;height:5px;border-radius:50%;background:#2A4A34;animation:blink .8s ${k*.22}s infinite"></div>`).join('')}</div>
+          AI 行动中…
+        </div>`
+      }
+    </div>`;
+  }
+}
+
+function renderCoach(){
+  const cp=document.getElementById('coach-panel');
+  if(S.phase==='lobby'){cp.innerHTML='';return}
+  if(!S.showCoach){
+    const eqColor=S.equity==null?'#888':S.equity>=60?'#44CC77':S.equity>=42?'#FFD700':'#FF6655';
+    cp.innerHTML=`<div style="margin:4px 10px 0;padding:7px 14px;background:rgba(68,180,100,.06);border:1px solid rgba(68,180,100,.18);border-radius:11px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0"><div style="display:flex;align-items:center;gap:8px"><span style="font-size:14px">🎯</span><span style="color:#44CC77;font-size:12px;font-weight:700">训练模式</span><span style="color:#2A5A34;font-size:11px">提示已隐藏</span></div>${S.equity!=null?`<span style="color:${eqColor};font-size:14px;font-weight:900">${S.equity}%</span>`:''}</div>`;
+    return;
+  }
+
+  const tabs=[{id:'analysis',icon:'📊',label:'分析'},{id:'outs',icon:'🎯',label:'Outs'},{id:'nuts',icon:'👑',label:'Nuts'},{id:'review',icon:'🔁',label:'复盘'}];
+  const tabBar=tabs.map(t=>`<button onclick="setTab('${t.id}')" style="flex:1;padding:10px 0;background:none;border:none;border-bottom:2px solid ${S.tab===t.id?'#B8943A':'transparent'};color:${S.tab===t.id?'#B8943A':'#3a5a42'};font-size:12px;font-weight:${S.tab===t.id?700:500};cursor:pointer;transition:all .2s;letter-spacing:.3px">${t.icon} ${t.label}</button>`).join('');
+
+  let content='';
+  const eqColor=S.equity==null?'#888':S.equity>=60?'#44CC77':S.equity>=42?'#FFD700':'#FF6655';
+  const handInfo=S.playerCards.length>0?evalHand([...S.playerCards,...S.comm]):null;
+  const toCall=Math.min(Math.max(0,S.orbit.curBet-S.orbit.playerStreetBet),S.playerChips);
+
+  if(S.tab==='analysis'){
+    const adv=S.betAdvice;
+    content=`
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div style="background:rgba(255,255,255,.025);border-radius:11px;padding:11px 13px;border:1px solid #0f2014">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:7px">
+          <span style="color:#7a9a84;font-size:11px;letter-spacing:.5px">你的胜率</span>
+          <span style="color:${eqColor};font-size:26px;font-weight:900;line-height:1">${S.equity!=null?S.equity+'%':'--'}</span>
+        </div>
+        <div style="height:6px;background:rgba(255,255,255,.07);border-radius:3px;overflow:hidden"><div style="height:100%;width:${S.equity||0}%;background:linear-gradient(90deg,${eqColor}88,${eqColor});border-radius:3px;transition:width .5s"></div></div>
+        <div style="color:#3a5a42;font-size:11px;margin-top:5px">${S.equity>=60?'🟢 明显优势，积极行动':S.equity>=45?'🟡 势均力敌，谨慎为上':'🔴 处于劣势，考虑弃牌'}</div>
+      </div>
+      ${handInfo?`<div style="background:rgba(255,255,255,.025);border-radius:11px;padding:11px 13px;border:1px solid #0f2014">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:7px">
+          <span style="color:#7a9a84;font-size:11px;letter-spacing:.5px">当前牌型</span>
+          <span style="color:#B8943A;font-size:16px;font-weight:800">${handInfo.n}</span>
+        </div>
+        <div style="height:6px;background:rgba(255,255,255,.07);border-radius:3px;overflow:hidden"><div style="height:100%;width:${(handInfo.t/9)*100}%;background:linear-gradient(90deg,#B8943A88,#B8943A);border-radius:3px"></div></div>
+      </div>`:''}
+      ${toCall>0?`<div style="background:rgba(255,255,255,.025);border-radius:11px;padding:11px 13px;border:1px solid #0f2014">
+        <div style="color:#7a9a84;font-size:11px;letter-spacing:.5px;margin-bottom:6px">底池赔率</div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div><div style="color:#ccddd4;font-size:13px">需跟注 <span style="color:#B8943A;font-weight:800">◈ ${toCall}</span></div><div style="color:#3a5a42;font-size:11px;margin-top:2px">底池 → ${S.pot+toCall}</div></div>
+          <div style="text-align:right"><div style="color:#ccddd4;font-size:13px">赔率 <span style="font-weight:800">${Math.round(toCall/(S.pot+toCall)*100)}%</span></div>${S.equity!=null?`<div style="color:${S.equity>Math.round(toCall/(S.pot+toCall)*100)?'#44CC77':'#FF6655'};font-size:11px;margin-top:2px;font-weight:700">${S.equity>Math.round(toCall/(S.pot+toCall)*100)?'✓ 值得跟注':'✗ 赔率不划算'}</div>`:''}</div>
+        </div>
+      </div>`:''}
+      ${adv?`<div style="background:${adv.color}11;border:1.5px solid ${adv.color}33;border-radius:11px;padding:10px 12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
+          <div style="display:flex;align-items:center;gap:7px"><span style="font-size:17px">${adv.action==='fold'?'🔴':adv.action==='raise'?'🟡':'🟢'}</span><span style="color:${adv.color};font-weight:900;font-size:14px">${adv.label}</span></div>
+          ${adv.action==='raise'&&adv.amount>0?`<span style="color:#B8943A;font-weight:800;font-size:13px">◈ ${adv.amount}</span>`:''}
+          ${adv.action==='call'&&toCall>0?`<span style="color:#4A9EFF;font-weight:800;font-size:13px">◈ ${toCall}</span>`:''}
+        </div>
+        <div style="color:#b0c8b8;font-size:12px;line-height:1.6">${adv.reason}</div>
+      </div>`:''}
+    </div>`;
+  } else if(S.tab==='outs'){
+    if(!S.outs){
+      content=`<div style="color:#2a4a34;font-size:13px;text-align:center;padding:20px 0;line-height:1.8">翻牌后显示 Outs 分析<br><span style="font-size:11px;color:#1a3020">Outs = 能改善你手牌的牌</span></div>`;
+    } else {
+      const o=S.outs;const probColor=o.prob>=30?'#44CC77':o.prob>=15?'#FFD700':'#FF8C42';
+      content=`
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px">
+        <span style="color:#B8943A;font-weight:900;font-size:36px;line-height:1">${o.count}</span>
+        <div><div style="color:#7a9a84;font-size:12px">张改善牌 (Outs)</div><div style="color:${probColor};font-weight:800;font-size:16px">改善概率 ≈ ${o.prob}%</div></div>
+      </div>
+      <div style="background:rgba(184,148,58,.08);border:1px solid rgba(184,148,58,.2);border-radius:9px;padding:7px 10px;margin-bottom:10px;font-size:11px;color:#8a9a84"><span style="color:#B8943A;font-weight:700">×${o.streetsLeft===2?4:2} 法则：</span>${o.count} × ${o.streetsLeft===2?4:2} ≈ ${o.prob}%${o.streetsLeft===2?' (还有两条街)':' (还有一条街)'}</div>
+      ${Object.entries(o.groups).map(([name,cnt])=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #0a1a0c"><span style="color:#8aaa94;font-size:12px">→ 改善到 <strong style="color:#ccddd4">${name}</strong></span>${badge(cnt+' 张','#B8943A')}</div>`).join('')}`;
+    }
+  } else if(S.tab==='nuts'){
+    if(!S.nuts){
+      content=`<div style="color:#2a4a34;font-size:13px;text-align:center;padding:20px 0;line-height:1.8">翻牌后显示 Nuts 分析<br><span style="font-size:11px;color:#1a3020">Nuts = 当前最强可能手牌</span></div>`;
+    } else {
+      const n=S.nuts;const handInfo2=S.playerCards.length>0?evalHand([...S.playerCards,...S.comm]):null;
+      content=`
+      <div style="margin-bottom:10px"><div style="color:#7a9a84;font-size:11px;margin-bottom:4px">当前桌面 Nuts</div><div style="color:#FFD700;font-weight:900;font-size:22px">${n.n}</div></div>
+      ${n.hand?.length>0?`<div style="margin-bottom:12px"><div style="color:#3a5a42;font-size:11px;margin-bottom:5px">达到 Nuts 的底牌示例</div><div style="display:flex;gap:5px">${n.hand.map(c=>cardHTML(c,'sm')).join('')}</div></div>`:''}
+      ${handInfo2?`<div style="background:rgba(255,255,255,.025);border-radius:10px;padding:10px 12px;border:1px solid #0f2014">
+        <div style="color:#7a9a84;font-size:11px;margin-bottom:7px">你 vs Nuts 差距</div>
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px"><span style="color:#ccddd4;font-weight:700">${handInfo2.n} <span style="color:#3a5a42;font-size:10px">你</span></span><span style="color:#FFD700;font-weight:700">${n.n} <span style="color:#3a5a42;font-size:10px">Nuts</span></span></div>
+        <div style="height:6px;background:rgba(255,255,255,.07);border-radius:3px;overflow:hidden"><div style="height:100%;width:${(handInfo2.t/Math.max(n.t,1))*100}%;background:${handInfo2.t>=n.t?'#44CC77':'#FF8C42'};border-radius:3px"></div></div>
+        <div style="margin-top:7px;font-size:12px;font-weight:700;color:${handInfo2.t>=n.t?'#44CC77':handInfo2.t>=n.t-1?'#FFD700':'#FF8C42'}">${handInfo2.t>=n.t?'🏆 你已是 Nuts！':handInfo2.t>=n.t-1?'⬆ 接近最强牌':'▼ 与 Nuts 有差距'}</div>
+      </div>`:''}`;
+    }
+  } else if(S.tab==='review'){
+    if(S.handHistory.length===0){
+      content=`<div style="text-align:center;padding:20px 0;color:#2a4a34;font-size:12px;line-height:1.8">完成一局后在此复盘<br><span style="font-size:10px;color:#1a3020">记录每局 AI 决策逻辑</span></div>`;
+    } else {
+      content=S.handHistory.map(h=>`
+      <div style="background:rgba(255,255,255,.02);border:1px solid #0f1f10;border-radius:11px;padding:10px 12px;margin-bottom:8px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <span style="color:#B8943A;font-weight:800;font-size:12px">第 ${h.handNum} 局</span>
+          <div style="display:flex;gap:3px;flex-wrap:wrap">${(h.comm||[]).map(c=>`<span style="background:#FFFCF0;border-radius:3px;padding:1px 4px;font-size:9px;font-weight:700;color:${RED_SUITS.has(c.suit)?'#C81010':'#111'}">${c.value}${c.suit}</span>`).join('')}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:7px">
+          <span style="color:#3a5a42;font-size:10px;flex-shrink:0">你的牌：</span>
+          ${(h.playerCards||[]).map(c=>`<span style="background:#FFFCF0;border-radius:3px;padding:1px 5px;font-size:10px;font-weight:800;color:${RED_SUITS.has(c.suit)?'#C81010':'#111'}">${c.value}${c.suit}</span>`).join('')}
+          ${h.winner?`<span style="margin-left:auto;color:${h.winner==='player'?'#44CC77':'#FF6655'};font-size:10px;font-weight:700">${h.winner==='player'?'🏆 赢':'❌ 输'}</span>`:''}
+        </div>
+        ${(h.ais||[]).filter(a=>(a.decisionLog||[]).length>0).map(a=>`
+          <div style="border-top:1px solid #0a180b;padding-top:5px;margin-top:5px">
+            <div style="display:flex;align-items:center;gap:5px;margin-bottom:3px"><span style="font-size:11px">${a.emoji}</span><span style="color:${a.color};font-size:10px;font-weight:700">${a.name}</span>${a.folded?`<span style="color:#FF5544;font-size:9px">弃牌</span>`:''}</div>
+            ${(a.decisionLog||[]).map(d=>`<div style="display:flex;gap:5px;font-size:9px;line-height:1.6;margin-bottom:2px;padding-left:4px"><span style="color:${d.action.startsWith('raise')?'#FFD700':d.action==='fold'?'#FF5544':d.action==='check'?'#7a9a84':'#44CC77'};font-weight:700;flex-shrink:0">${{pre:'翻前',flop:'翻牌',turn:'转牌',river:'河牌'}[d.street]||d.street}</span><span style="color:#5a7a64">${(d.why||d.action).slice(0,80)}</span></div>`).join('')}
+          </div>`).join('')}
+      </div>`).join('');
+    }
+  }
+
+  cp.innerHTML=`
+  <div style="margin:0 10px 6px;background:#080f09;border:1.5px solid #0f2014;border-radius:16px;overflow:hidden">
+    <div style="display:flex;background:rgba(0,0,0,.4)">${tabBar}</div>
+    <div style="padding:12px 14px;min-height:110px;max-height:220px;overflow-y:auto">${content}</div>
+  </div>`;
+}
+
+function renderAiModal(){
+  const modal=document.getElementById('ai-modal');
+  if(!S.aiDetail){modal.style.display='none';return}
+  const ai=S.aiDetail;const p=PERSONAS[ai.id]||{};const log=ai.decisionLog||[];
+  const STREET_CN={pre:'翻前',flop:'翻牌',turn:'转牌',river:'河牌'};
+  const actionColor=a=>a.startsWith('raise')?'#FFD700':a==='fold'?'#FF5544':a==='check'?'#7a9a84':'#44CC77';
+  modal.style.display='flex';
+  modal.innerHTML=`
+  <div onclick="closeAiDetail()" style="position:absolute;inset:0"></div>
+  <div style="width:100%;max-width:430px;background:#080f09;border-top:2px solid ${ai.color}44;border-radius:18px 18px 0 0;padding:18px 16px 28px;max-height:80vh;overflow-y:auto;position:relative;z-index:1">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <span style="font-size:26px">${ai.emoji}</span>
+      <div style="flex:1"><div style="color:${ai.color};font-weight:900;font-size:17px">${ai.name}</div><div style="color:#3a5a42;font-size:11px">◈ ${ai.chips.toLocaleString()} · ${ai.folded?'已弃牌':'在局中'}</div></div>
+      <button onclick="closeAiDetail()" style="background:none;border:none;color:#3a5a42;font-size:22px;cursor:pointer;padding:0 4px">✕</button>
+    </div>
+    <div style="background:rgba(255,255,255,.025);border-radius:12px;padding:10px 12px;margin-bottom:12px;display:grid;grid-template-columns:1fr 1fr;gap:7px 14px">
+      ${[['激进度',Math.round(p.aggression*100)+'%'],['虚张频率',Math.round(p.bluffFreq*100)+'%'],['恐慌弃牌',Math.round(p.panicFold*100)+'%'],['慢打率',Math.round(p.slowPlay*100)+'%'],['开牌范围',Math.round((p.preflopCont||.55)*100)+'%'],['3-bet',Math.round((p.threeBetFreq||0)*100)+'%']].map(([k,v])=>`<div><div style="color:#3a5a42;font-size:10px">${k}</div><div style="color:#b8ccbe;font-size:12px;font-weight:700">${v}</div></div>`).join('')}
+    </div>
+    <div style="color:#3a5a42;font-size:11px;margin-bottom:8px;letter-spacing:.5px">本局决策记录</div>
+    ${log.length===0?`<div style="color:#2a3a2a;font-size:12px;text-align:center;padding:12px 0">本局暂无记录</div>`:
+      log.map(e=>`<div style="background:rgba(255,255,255,.02);border:1px solid #0f1f10;border-radius:9px;padding:8px 10px;margin-bottom:6px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+          <span style="background:${actionColor(e.action)}22;border:1px solid ${actionColor(e.action)}44;border-radius:20px;padding:1px 8px;color:${actionColor(e.action)};font-size:10px;font-weight:700">${e.action}</span>
+          <span style="color:#3a5a42;font-size:10px">${STREET_CN[e.street]||e.street}</span>
+        </div>
+        ${e.why?`<div style="color:#6a8a74;font-size:11px;line-height:1.55">${e.why}</div>`:''}
+      </div>`).join('')}
+  </div>`;
+}
+
+function renderAll(){
+  renderTopBar();renderAiRow();renderFelt();renderPlayerHand();renderActionBar();renderCoach();renderAiModal();
+}
+
+// ═══════════════════════════════════════
+// BETTING ORBIT ENGINE
+// ═══════════════════════════════════════
+function buildActionOrder(dealer,isPreflop,ais,pFolded){
+  const seats=[];const start=isPreflop?dealer+3:dealer+1;
+  for(let i=0;i<6;i++){const s=(start+i)%6;if(s===PLAYER_SEAT){if(!pFolded)seats.push(s)}else{const ai=ais[s];if(ai&&!ai.folded)seats.push(s)}}
+  return seats;
+}
+function rebuildAfterRaise(raiserSeat,ais,pFolded){
+  const seats=[];for(let i=1;i<=5;i++){const s=(raiserSeat+i)%6;if(s===PLAYER_SEAT){if(!pFolded)seats.push(s)}else{const ai=ais[s];if(ai&&!ai.folded)seats.push(s)}}
+  return seats;
+}
+
+async function runOrbit(){
+  const orbit=S.orbit;
+  while(orbit.toAct.length>0){
+    const pFolded=orbit.pFolded;const curAis=S.ais;
+    const activeTotal=(pFolded?0:1)+curAis.filter(a=>!a.folded).length;
+    if(activeTotal<=1){doShowdown();return}
+    const seat=orbit.toAct[0];
+    if(seat===PLAYER_SEAT){
+      S.curBet=orbit.curBet;S.playerBet=orbit.playerStreetBet;
+      S.raiseAmt=Math.min(Math.max(orbit.curBet*2,BB*3),S.playerChips);
+      S.waiting=true;renderAll();return;
+    }
+    orbit.toAct.shift();
+    const ai=curAis[seat];if(!ai||ai.folded)continue;
+    S.ais[seat]={...ai,thinking:true};renderAiRow();
+    const base={gpt4:280,gemini:750,llama:180,claude:580,grok:220}[ai.id]||400;
+    await new Promise(r=>setTimeout(r,base+Math.random()*500));
+    let dec;try{dec=makeAiDecision(ai,S.comm,S.pot,orbit.curBet)}catch(e){dec={action:'call',amount:0,comment:'...'}}
+    let up={...ai,thinking:false};
+    const streetName=S.comm.length===0?'pre':S.comm.length===3?'flop':S.comm.length===4?'turn':'river';
+    const addLog=(action,why)=>[...(ai.decisionLog||[]),{street:streetName,action,why:why||''}].slice(-8);
+
+    if(dec.action==='fold'){
+      up={...up,folded:true,lastAction:'fold',comment:dec.comment,decisionLog:addLog('fold',dec._why)};
+    } else if(dec.action==='raise'&&dec.amount>orbit.curBet){
+      const rt=Math.min(+dec.amount,ai.chips+ai.bet);const ex=rt-ai.bet;
+      if(ex>0&&ex<=ai.chips){
+        orbit.curBet=rt;S.pot+=ex;
+        up={...up,bet:rt,chips:ai.chips-ex,lastAction:'raise',comment:dec.comment,decisionLog:addLog(`raise ${rt}`,dec._why)};
+        S.ais[seat]=up;orbit.toAct=rebuildAfterRaise(seat,S.ais,orbit.pFolded);renderAiRow();renderTopBar();renderFelt();continue;
+      } else {
+        const tc=Math.min(Math.max(0,orbit.curBet-ai.bet),ai.chips);S.pot+=tc;
+        up={...up,bet:ai.bet+tc,chips:ai.chips-tc,lastAction:'call',comment:dec.comment,decisionLog:addLog('call',dec._why)};
+      }
+    } else {
+      const tc=Math.min(Math.max(0,orbit.curBet-ai.bet),ai.chips);S.pot+=tc;
+      const isCheck=tc===0;
+      up={...up,bet:ai.bet+tc,chips:ai.chips-tc,lastAction:'call',comment:isCheck?'':dec.comment,decisionLog:addLog(isCheck?'check':'call',dec._why)};
+    }
+    S.ais[seat]=up;renderAiRow();renderTopBar();renderFelt();
+  }
+  advanceStreet();
+}
+
+function advanceStreet(){
+  const orbit=S.orbit;const pFolded=orbit.pFolded;
+  const activeTotal=(pFolded?0:1)+S.ais.filter(a=>!a.folded).length;
+  if(activeTotal<=1){doShowdown();return}
+  S.ais=S.ais.map(a=>({...a,bet:0}));S.playerBet=0;S.curBet=0;
+  orbit.playerStreetBet=0;orbit.curBet=0;
+  const cur=S.comm;
+  if(cur.length===0){
+    const flop=S.deck.splice(0,3);S.comm=[...flop];S.phase='flop';
+  } else if(cur.length===3){
+    S.comm=[...cur,S.deck.shift()];S.phase='turn';
+  } else if(cur.length===4){
+    S.comm=[...cur,S.deck.shift()];S.phase='river';
+  } else {doShowdown();return}
+  orbit.toAct=buildActionOrder(S.dealerPos,false,S.ais,pFolded);
+  updateAnalysis();renderAll();
+  runOrbit();
+}
+
+// ═══════════════════════════════════════
+// START HAND
+// ═══════════════════════════════════════
+function startHand(){
+  const newDealer=(S.dealerPos+1)%6;S.dealerPos=newDealer;
+  const sbSeat=(newDealer+1)%6,bbSeat=(newDealer+2)%6;
+  const deck=shuffle(fullDeck());let idx=0;
+  const pCards=[deck[idx++],deck[idx++]];
+  const chipMap=Object.fromEntries(S.ais.map(a=>[a.id,a.chips]));
+  S.ais=AI_CONFIGS.map((cfg,i)=>{
+    const isSB=i===sbSeat,isBB=i===bbSeat;
+    const prev=chipMap[cfg.id]??cfg.chips;
+    let pos=null;if(i===newDealer)pos='D';else if(isSB)pos='SB';else if(isBB)pos='BB';
+    return{...cfg,chips:prev-(isSB?SB:0)-(isBB?BB:0),bet:isSB?SB:isBB?BB:0,cards:[deck[idx++],deck[idx++]],folded:false,thinking:false,lastAction:(isSB||isBB)?'blind':null,comment:isSB?`小盲 ${SB}`:isBB?`大盲 ${BB}`:'',showCards:false,pos,decisionLog:[]};
+  });
+  let playerPos=null;
+  if(PLAYER_SEAT===newDealer)playerPos='D';else if(PLAYER_SEAT===sbSeat)playerPos='SB';else if(PLAYER_SEAT===bbSeat)playerPos='BB';
+  const playerIsSB=PLAYER_SEAT===sbSeat,playerIsBB=PLAYER_SEAT===bbSeat;
+  const playerBlind=playerIsSB?SB:playerIsBB?BB:0;
+  S.deck=deck.slice(idx);S.handNum++;S.playerCards=pCards;S.comm=[];
+  S.playerFolded=false;S.result=null;S.waiting=false;
+  S.equity=null;S.outs=null;S.nuts=null;S.betAdvice=null;
+  S.tab='analysis';S.currentPlayerPos=playerPos;S.raiseBtnLabel=null;S.aiDetail=null;
+  S.pot=SB+BB;S.playerBet=playerBlind;S.curBet=BB;
+  S.playerChips-=playerBlind;S.phase='preflop';
+  S.orbit={toAct:buildActionOrder(newDealer,true,S.ais,false),curBet:BB,playerStreetBet:playerBlind,pFolded:false};
+  updateAnalysis();renderAll();
+  runOrbit();
+}
+
+// ═══════════════════════════════════════
+// PLAYER ACTIONS
+// ═══════════════════════════════════════
+async function onFold(){
+  if(!S.waiting||S.playerFolded)return;
+  S.waiting=false;S.playerFolded=true;S.orbit.pFolded=true;
+  S.orbit.toAct=S.orbit.toAct.filter(s=>s!==PLAYER_SEAT);
+  renderAll();
+  if(S.ais.filter(a=>!a.folded).length<=1){doShowdown();return}
+  await runOrbit();
+}
+async function onCall(){
+  if(!S.waiting||S.playerFolded)return;
+  S.waiting=false;
+  const orbit=S.orbit;const tc=Math.min(Math.max(0,orbit.curBet-orbit.playerStreetBet),S.playerChips);
+  orbit.playerStreetBet+=tc;S.playerBet=orbit.playerStreetBet;S.playerChips-=tc;S.pot+=tc;
+  orbit.toAct=orbit.toAct.filter(s=>s!==PLAYER_SEAT);
+  renderAll();await runOrbit();
+}
+async function onRaise(){
+  if(!S.waiting||S.playerFolded)return;
+  const orbit=S.orbit;const total=Math.min(S.raiseAmt,S.playerChips);
+  if(total<=orbit.curBet)return;
+  S.waiting=false;
+  const extra=total-orbit.playerStreetBet;S.playerChips-=extra;
+  orbit.playerStreetBet=total;S.playerBet=total;orbit.curBet=total;S.curBet=total;S.pot+=extra;
+  orbit.toAct=rebuildAfterRaise(PLAYER_SEAT,S.ais,orbit.pFolded);
+  renderAll();await runOrbit();
+}
+
+// ═══════════════════════════════════════
+// SHOWDOWN
+// ═══════════════════════════════════════
+function doShowdown(){
+  const pFolded=S.orbit.pFolded;
+  S.phase='showdown';S.waiting=false;
+  S.ais=S.ais.map(a=>({...a,showCards:!a.folded}));
+  const fp=S.pot;
+  const active=[
+    ...(!pFolded?[{id:'player',name:'你',score:evalHand([...S.playerCards,...S.comm]),cards:S.playerCards}]:[]),
+    ...S.ais.filter(a=>!a.folded).map(a=>({id:a.id,name:a.name,color:a.color,score:evalHand([...a.cards,...S.comm]),cards:a.cards}))
+  ];
+  let winner=null;
+  if(active.length===0){S.pot=0}
+  else if(active.length===1){
+    const w=active[0];
+    if(w.id==='player'){S.playerChips+=fp;S.result={winner:'player',amount:fp,handName:'对手全部弃牌'}}
+    else{S.ais=S.ais.map(a=>a.id===w.id?{...a,chips:a.chips+fp}:a);S.result={winner:w.name,color:w.color,amount:fp,handName:'对手弃牌'}}
+    winner=w.id==='player'?'player':w.id;
+  } else {
+    active.sort((a,b)=>b.score.r-a.score.r);const w=active[0];
+    if(w.id==='player'){S.playerChips+=fp;S.result={winner:'player',amount:fp,handName:w.score.n}}
+    else{S.ais=S.ais.map(a=>a.id===w.id?{...a,chips:a.chips+fp}:a);S.result={winner:w.name,color:w.color,amount:fp,handName:w.score.n}}
+    winner=w.id==='player'?'player':w.id;
+  }
+  S.pot=0;
+  // Record hand history
+  S.handHistory=[{handNum:S.handNum,comm:[...S.comm],ais:S.ais.map(a=>({id:a.id,name:a.name,emoji:a.emoji,color:a.color,cards:a.cards,folded:a.folded,chips:a.chips,decisionLog:a.decisionLog||[]})),playerCards:[...S.playerCards],winner},...S.handHistory].slice(0,10);
+  renderAll();
+}
+
+// ═══════════════════════════════════════
+// ANALYSIS
+// ═══════════════════════════════════════
+function updateAnalysis(){
+  if(S.playerCards.length<2)return;
+  const activeAis=S.ais.filter(a=>!a.folded).length;
+  S.equity=calcEquity(S.playerCards,S.comm,activeAis||1);
+  if(S.comm.length>=3){
+    S.outs=calcOuts(S.playerCards,S.comm);
+    S.nuts=calcNuts(S.comm);
+    const hi=evalHand([...S.playerCards,...S.comm]);
+    const toCall=Math.max(0,S.orbit.curBet-S.orbit.playerStreetBet);
+    S.betAdvice=getBetAdvice(S.equity,S.outs,hi.t,toCall,S.pot,S.playerChips);
+  } else {S.outs=null;S.nuts=null;S.betAdvice=null}
+}
+
+// ═══════════════════════════════════════
+// UI HELPERS (called from HTML)
+// ═══════════════════════════════════════
+function toggleCoach(){S.showCoach=!S.showCoach;renderTopBar();renderCoach()}
+function setTab(t){S.tab=t;renderCoach()}
+function showAiDetail(i){S.aiDetail=S.ais[i];renderAiModal()}
+function closeAiDetail(){S.aiDetail=null;renderAiModal()}
+function setQuickRaise(label,val){S.raiseBtnLabel=label;S.raiseAmt=val;renderActionBar()}
+function setRaiseAmt(v){const n=parseInt(v,10);if(!isNaN(n)){S.raiseBtnLabel=null;S.raiseAmt=Math.min(Math.max(n,0),S.playerChips);renderActionBar()}}
+function adjRaise(dir){
+  S.raiseBtnLabel=null;
+  const minRaise=Math.max(S.orbit.curBet*2,BB*2);
+  if(dir<0)S.raiseAmt=Math.max(minRaise,Math.round((S.raiseAmt-BB)/5)*5);
+  else S.raiseAmt=Math.min(Math.round((S.raiseAmt+BB)/5)*5,S.playerChips);
+  renderActionBar();
+}
+
+// ═══════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════
+renderAll();
+</script>
+
 </body>
 </html>
