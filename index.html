@@ -217,6 +217,7 @@ const S = {
   tab:'analysis', equity:null, outs:null, nuts:null, betAdvice:null,
   dealerPos:0, currentPlayerPos:null, showCoach:true, aiDetail:null, handHistory:[],
   deck:[], animatedComm:new Set(), playerCardsDealt:false,
+  playerLog:[], // current hand player actions
   orbit:{toAct:[],curBet:0,playerStreetBet:0,pFolded:false},
 };
 
@@ -486,32 +487,111 @@ function renderCoach(){
     }
   } else if(S.tab==='review'){
     if(S.handHistory.length===0){
-      content=`<div style="text-align:center;padding:20px 0;color:#2a4a34;font-size:12px;line-height:1.8">完成一局后在此复盘<br><span style="font-size:10px;color:#1a3020">记录每局 AI 决策逻辑</span></div>`;
+      content=`<div style="text-align:center;padding:24px 0;color:#2a4a34;font-size:13px;line-height:2">完成一局后在此复盘<br><span style="font-size:11px;color:#1a3020">记录你的每个决策与风格分析</span></div>`;
     } else {
-      content=S.handHistory.map(h=>`
-      <div style="background:rgba(255,255,255,.02);border:1px solid #0f1f10;border-radius:11px;padding:10px 12px;margin-bottom:8px">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-          <span style="color:#B8943A;font-weight:800;font-size:12px">第 ${h.handNum} 局</span>
-          <div style="display:flex;gap:3px;flex-wrap:wrap">${(h.comm||[]).map(c=>`<span style="background:#FFFCF0;border-radius:3px;padding:1px 4px;font-size:9px;font-weight:700;color:${RED_SUITS.has(c.suit)?'#C81010':'#111'}">${c.value}${c.suit}</span>`).join('')}</div>
+      // ── Style analysis across all hands ──
+      const allLogs=S.handHistory.flatMap(h=>h.playerLog||[]);
+      const total=allLogs.length;
+      const folds=allLogs.filter(a=>a.action==='fold').length;
+      const raises=allLogs.filter(a=>a.action==='raise').length;
+      const calls=allLogs.filter(a=>a.action==='call').length;
+      const checks=allLogs.filter(a=>a.action==='check').length;
+      const vpipHands=S.handHistory.filter(h=>(h.playerLog||[]).some(a=>a.street==='pre'&&(a.action==='call'||a.action==='raise'))).length;
+      const vpip=S.handHistory.length>0?Math.round(vpipHands/S.handHistory.length*100):0;
+      const af=calls+checks>0?(raises/(calls+checks)).toFixed(1):'∞';
+      const foldPct=total>0?Math.round(folds/total*100):0;
+      const wins=S.handHistory.filter(h=>h.winner==='player').length;
+      const winRate=S.handHistory.length>0?Math.round(wins/S.handHistory.length*100):0;
+      // Mistakes: fold with equity>=50, call with equity<30 and potOdds>equity
+      const badFolds=allLogs.filter(a=>a.action==='fold'&&a.equity!=null&&a.equity>=50).length;
+      const looseCalls=allLogs.filter(a=>a.action==='call'&&a.equity!=null&&a.equity<30&&a.potOdds>0&&a.equity<a.potOdds).length;
+      const overFolds=allLogs.filter(a=>a.action==='fold'&&a.equity!=null&&a.equity>=40&&a.potOdds>0&&a.equity>=a.potOdds).length;
+      // Style label
+      let styleLabel='', styleColor='#B8943A', styleDesc='';
+      if(total<4){styleLabel='数据积累中';styleColor='#3a5a42';styleDesc='再打几局，分析你的风格';}
+      else if(vpip>=70&&raises/Math.max(total,1)>=.35){styleLabel='激进鱼';styleColor='#FF6655';styleDesc='入池太松，加注太多，容易被人读牌';}
+      else if(vpip>=60&&raises/Math.max(total,1)>=.25){styleLabel='LAG 打法';styleColor='#FF8C42';styleDesc='宽松激进，需要更强的读牌能力支撑';}
+      else if(vpip<=30&&raises/Math.max(total,1)>=.3){styleLabel='TAG 打法';styleColor='#44CC77';styleDesc='紧凶是经典赢钱打法，继续保持';}
+      else if(vpip<=25&&raises/Math.max(total,1)<.15){styleLabel='Nit 打法';styleColor='#4A9EFF';styleDesc='过于保守，被人读出范围，应适当扩宽参与';}
+      else if(foldPct>=55){styleLabel='Call Station';styleColor='#FF8C42';styleDesc='跟注过多，缺乏主动性，容易成为被动局面';}
+      else{styleLabel='均衡打法';styleColor='#B8943A';styleDesc='风格相对均衡，继续优化细节';}
+
+      const STREET_CN={pre:'翻前',flop:'翻牌',turn:'转牌',river:'河牌'};
+      const aColor=a=>a==='fold'?'#FF5544':a==='raise'?'#FFD700':a==='check'?'#7a9a84':'#44CC77';
+
+      const statBlock=`
+      <div style="background:rgba(255,255,255,.025);border:1px solid #0f2014;border-radius:12px;padding:12px 14px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div>
+            <div style="color:#7a9a84;font-size:10px;letter-spacing:.5px;margin-bottom:3px">综合风格</div>
+            <div style="color:${styleColor};font-size:16px;font-weight:900">${styleLabel}</div>
+            <div style="color:#3a5a42;font-size:11px;margin-top:3px;line-height:1.5">${styleDesc}</div>
+          </div>
+          <div style="text-align:right;flex-shrink:0;margin-left:10px">
+            <div style="color:#3a5a42;font-size:10px">胜率</div>
+            <div style="color:${winRate>=50?'#44CC77':'#FF6655'};font-size:22px;font-weight:900">${winRate}%</div>
+            <div style="color:#2a3a2a;font-size:9px">${wins}/${S.handHistory.length} 局</div>
+          </div>
         </div>
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:7px">
-          <span style="color:#3a5a42;font-size:10px;flex-shrink:0">你的牌：</span>
-          ${(h.playerCards||[]).map(c=>`<span style="background:#FFFCF0;border-radius:3px;padding:1px 5px;font-size:10px;font-weight:800;color:${RED_SUITS.has(c.suit)?'#C81010':'#111'}">${c.value}${c.suit}</span>`).join('')}
-          ${h.winner?`<span style="margin-left:auto;color:${h.winner==='player'?'#44CC77':'#FF6655'};font-size:10px;font-weight:700">${h.winner==='player'?'🏆 赢':'❌ 输'}</span>`:''}
-        </div>
-        ${(h.ais||[]).filter(a=>(a.decisionLog||[]).length>0).map(a=>`
-          <div style="border-top:1px solid #0a180b;padding-top:5px;margin-top:5px">
-            <div style="display:flex;align-items:center;gap:5px;margin-bottom:3px"><span style="font-size:11px">${a.emoji}</span><span style="color:${a.color};font-size:10px;font-weight:700">${a.name}</span>${a.folded?`<span style="color:#FF5544;font-size:9px">弃牌</span>`:''}</div>
-            ${(a.decisionLog||[]).map(d=>`<div style="display:flex;gap:5px;font-size:9px;line-height:1.6;margin-bottom:2px;padding-left:4px"><span style="color:${d.action.startsWith('raise')?'#FFD700':d.action==='fold'?'#FF5544':d.action==='check'?'#7a9a84':'#44CC77'};font-weight:700;flex-shrink:0">${{pre:'翻前',flop:'翻牌',turn:'转牌',river:'河牌'}[d.street]||d.street}</span><span style="color:#5a7a64">${(d.why||d.action).slice(0,80)}</span></div>`).join('')}
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:10px">
+          ${[['VPIP',vpip+'%',vpip>=40?'#FF8C42':vpip>=20?'#44CC77':'#4A9EFF','入池频率'],
+             ['AF',af,parseFloat(af)>=2?'#FFD700':parseFloat(af)>=1?'#44CC77':'#4A9EFF','激进系数'],
+             ['弃牌%',foldPct+'%',foldPct>=50?'#FF6655':foldPct>=30?'#44CC77':'#4A9EFF','弃牌比例'],
+             ['加注%',Math.round(raises/Math.max(total,1)*100)+'%','#B8943A','加注频率']
+          ].map(([k,v,c,sub])=>`<div style="background:rgba(0,0,0,.3);border-radius:8px;padding:7px 6px;text-align:center">
+            <div style="color:${c};font-size:15px;font-weight:900;line-height:1">${v}</div>
+            <div style="color:#5a7a64;font-size:9px;margin-top:3px;font-weight:700">${k}</div>
+            <div style="color:#2a3a2a;font-size:8px">${sub}</div>
           </div>`).join('')}
-      </div>`).join('');
+        </div>
+        ${badFolds>0||looseCalls>0||overFolds>0?`
+        <div style="background:rgba(255,100,80,.06);border:1px solid rgba(255,100,80,.2);border-radius:9px;padding:8px 10px">
+          <div style="color:#FF8866;font-size:11px;font-weight:700;margin-bottom:5px">⚠ 发现潜在问题</div>
+          ${badFolds>0?`<div style="color:#6a8a74;font-size:11px;line-height:1.6;margin-bottom:3px">· 有 <span style="color:#FFD700;font-weight:700">${badFolds}</span> 次弃牌时胜率≥50%，可能放弃了优势</div>`:''}
+          ${looseCalls>0?`<div style="color:#6a8a74;font-size:11px;line-height:1.6;margin-bottom:3px">· 有 <span style="color:#FF8C42;font-weight:700">${looseCalls}</span> 次跟注时胜率不及底池赔率</div>`:''}
+          ${overFolds>0?`<div style="color:#6a8a74;font-size:11px;line-height:1.6">· 有 <span style="color:#4A9EFF;font-weight:700">${overFolds}</span> 次弃牌赔率划算但选择了放弃</div>`:''}
+        </div>`:'<div style="color:#3a6a44;font-size:11px;text-align:center;padding:4px 0">✓ 暂无明显决策失误</div>'}
+      </div>`;
+
+      const handCards=S.handHistory.map(h=>{
+        const plog=h.playerLog||[];
+        return`
+        <div style="background:rgba(255,255,255,.02);border:1px solid #0f1f10;border-radius:11px;padding:10px 12px;margin-bottom:8px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
+            <span style="color:#B8943A;font-weight:800;font-size:11px">第${h.handNum}局</span>
+            <div style="display:flex;gap:3px;flex-wrap:wrap">${(h.comm||[]).map(c=>`<span style="background:#FFFCF0;border-radius:3px;padding:1px 4px;font-size:9px;font-weight:700;color:${RED_SUITS.has(c.suit)?'#C81010':'#111'}">${c.value}${c.suit}</span>`).join('')}</div>
+            <span style="margin-left:auto;color:${h.winner==='player'?'#44CC77':'#FF6655'};font-size:10px;font-weight:700;flex-shrink:0">${h.winner==='player'?'🏆 赢':'❌ 输'}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+            ${(h.playerCards||[]).map(c=>`<span style="background:#FFFCF0;border-radius:4px;padding:2px 6px;font-size:11px;font-weight:800;color:${RED_SUITS.has(c.suit)?'#C81010':'#111'}">${c.value}${c.suit}</span>`).join('')}
+            ${h.finalHand?`<span style="color:#B8943A;font-size:10px;margin-left:4px">→ ${h.finalHand.n}</span>`:''}
+            <span style="color:#3a5a42;font-size:10px">底池 ◈${h.pot||0}</span>
+          </div>
+          ${plog.length===0?`<div style="color:#2a3a2a;font-size:11px;padding:4px 0">本局无决策记录（自动过盲？）</div>`:
+            plog.map(a=>{
+              const warn=a.action==='fold'&&a.equity>=50?'⚠':a.action==='call'&&a.equity<30&&a.potOdds>a.equity?'⚠':'';
+              return`<div style="display:flex;align-items:flex-start;gap:7px;padding:5px 0;border-bottom:1px solid #0a180b">
+                <span style="color:#3a5a42;font-size:9px;flex-shrink:0;padding-top:1px;width:28px">${STREET_CN[a.street]||a.street}</span>
+                <span style="background:${aColor(a.action)}22;border:1px solid ${aColor(a.action)}44;border-radius:20px;padding:1px 7px;color:${aColor(a.action)};font-size:9px;font-weight:800;flex-shrink:0">${a.action==='check'?'过牌':a.action==='fold'?'弃牌':a.action==='raise'?`加注${a.amount}`:`跟注${a.amount}`}</span>
+                <div style="flex:1;min-width:0">
+                  <span style="color:#5a7a64;font-size:9px">${a.handName}</span>
+                  ${a.equity!=null?`<span style="color:${a.equity>=60?'#44CC77':a.equity>=40?'#FFD700':'#FF6655'};font-size:9px;margin-left:5px">胜率${a.equity}%</span>`:''}
+                  ${a.potOdds>0?`<span style="color:#3a5a42;font-size:9px;margin-left:4px">赔率${a.potOdds}%</span>`:''}
+                </div>
+                ${warn?`<span style="color:#FFD700;font-size:10px;flex-shrink:0" title="决策值得复盘">${warn}</span>`:''}
+              </div>`;
+            }).join('')}
+        </div>`;
+      }).join('');
+
+      content = statBlock + handCards;
     }
   }
 
   cp.innerHTML=`
   <div style="margin:0 10px 6px;background:#080f09;border:1.5px solid #0f2014;border-radius:16px;overflow:hidden">
     <div style="display:flex;background:rgba(0,0,0,.4)">${tabBar}</div>
-    <div style="padding:12px 14px;min-height:110px;max-height:220px;overflow-y:auto">${content}</div>
+    <div style="padding:12px 14px;min-height:110px;max-height:340px;overflow-y:auto">${content}</div>
   </div>`;
 }
 
@@ -651,7 +731,7 @@ function startHand(){
   S.deck=deck.slice(idx);S.handNum++;S.playerCards=pCards;S.comm=[];
   S.playerFolded=false;S.result=null;S.waiting=false;
   S.equity=null;S.outs=null;S.nuts=null;S.betAdvice=null;
-  S.tab='analysis';S.currentPlayerPos=playerPos;S.raiseBtnLabel=null;S.aiDetail=null;S.animatedComm=new Set();S.playerCardsDealt=false;
+  S.tab='analysis';S.currentPlayerPos=playerPos;S.raiseBtnLabel=null;S.aiDetail=null;S.animatedComm=new Set();S.playerCardsDealt=false;S.playerLog=[];
   S.pot=SB+BB;S.playerBet=playerBlind;S.curBet=BB;
   S.playerChips=Math.max(0,S.playerChips-playerBlind);S.phase='preflop';
   S.orbit={toAct:buildActionOrder(newDealer,true,S.ais,false),curBet:BB,playerStreetBet:playerBlind,pFolded:false};
@@ -659,11 +739,27 @@ function startHand(){
   runOrbit();
 }
 
+
+function logPlayerAction(action, amount=0){
+  const street=S.comm.length===0?'pre':S.comm.length===3?'flop':S.comm.length===4?'turn':'river';
+  const hand=S.playerCards.length>0?evalHand([...S.playerCards,...S.comm]):null;
+  const toCall=Math.max(0,S.orbit.curBet-S.orbit.playerStreetBet);
+  const potOdds=toCall>0?Math.round(toCall/(S.pot+toCall)*100):0;
+  S.playerLog.push({
+    street, action, amount,
+    handName:hand?hand.n:'?', handT:hand?hand.t:-1,
+    equity:S.equity, potOdds, pot:S.pot,
+    pos:S.currentPlayerPos||'?',
+    chipsBefore:S.playerChips+(action==='fold'?0:amount)
+  });
+}
+
 // ═══════════════════════════════════════
 // PLAYER ACTIONS
 // ═══════════════════════════════════════
 async function onFold(){
   if(!S.waiting||S.playerFolded)return;
+  logPlayerAction('fold',0);
   S.waiting=false;S.playerFolded=true;S.orbit.pFolded=true;
   S.orbit.toAct=S.orbit.toAct.filter(s=>s!==PLAYER_SEAT);
   renderAll();
@@ -674,6 +770,8 @@ async function onFold(){
 }
 async function onCall(){
   if(!S.waiting||S.playerFolded)return;
+  const _tcLog=Math.min(Math.max(0,S.orbit.curBet-S.orbit.playerStreetBet),S.playerChips);
+  logPlayerAction(_tcLog===0?'check':'call',_tcLog);
   S.waiting=false;
   const orbit=S.orbit;const tc=Math.min(Math.max(0,orbit.curBet-orbit.playerStreetBet),S.playerChips);
   orbit.playerStreetBet+=tc;S.playerBet=orbit.playerStreetBet;S.playerChips-=tc;S.pot+=tc;
@@ -684,6 +782,7 @@ async function onRaise(){
   if(!S.waiting||S.playerFolded)return;
   const orbit=S.orbit;const total=Math.min(S.raiseAmt,S.playerChips);
   if(total<=orbit.curBet)return;
+  logPlayerAction('raise',total);
   S.waiting=false;
   const extra=total-orbit.playerStreetBet;S.playerChips-=extra;
   orbit.playerStreetBet=total;S.playerBet=total;orbit.curBet=total;S.curBet=total;S.pot+=extra;
@@ -718,7 +817,8 @@ function doShowdown(){
   }
   S.pot=0;
   // Record hand history
-  S.handHistory=[{handNum:S.handNum,comm:[...S.comm],ais:S.ais.map(a=>({id:a.id,name:a.name,emoji:a.emoji,color:a.color,cards:a.cards,folded:a.folded,chips:a.chips,decisionLog:a.decisionLog||[]})),playerCards:[...S.playerCards],winner},...S.handHistory].slice(0,10);
+  const finalHand=S.playerCards.length>0&&S.comm.length>0?evalHand([...S.playerCards,...S.comm]):null;
+  S.handHistory=[{handNum:S.handNum,comm:[...S.comm],ais:S.ais.map(a=>({id:a.id,name:a.name,emoji:a.emoji,color:a.color,cards:a.cards,folded:a.folded,chips:a.chips,decisionLog:a.decisionLog||[]})),playerCards:[...S.playerCards],playerLog:[...S.playerLog],finalHand,winner,pot:fp},...S.handHistory].slice(0,20);
   renderAll();
 }
 
