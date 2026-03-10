@@ -17,15 +17,22 @@
     @keyframes deal{from{opacity:0;transform:translateY(-22px) scale(.85)}to{opacity:1;transform:none}}
     @keyframes pop{from{opacity:0;transform:scale(.8)}to{opacity:1;transform:scale(1)}}
     @keyframes slidein{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+    @keyframes toast-in{from{transform:translateX(-50%) translateY(-90px);opacity:0}to{transform:translateX(-50%) translateY(0);opacity:1}}
+    @keyframes toast-out{from{transform:translateX(-50%) translateY(0);opacity:1}to{transform:translateX(-50%) translateY(-90px);opacity:0}}
+    @keyframes rankglow{0%,100%{box-shadow:0 0 0 rgba(255,215,0,0)}50%{box-shadow:0 0 20px rgba(255,215,0,.5)}}
+    @keyframes tiltpulse{0%,100%{border-color:rgba(255,80,50,.3)}50%{border-color:rgba(255,80,50,.85)}}
     .deal{animation:deal .35s cubic-bezier(.34,1.5,.64,1) both}
     .pop{animation:pop .35s cubic-bezier(.34,1.5,.64,1) both}
     .in{animation:slidein .3s ease both}
+    .toast-in{animation:toast-in .42s cubic-bezier(.34,1.5,.64,1) both}
+    .toast-out{animation:toast-out .35s ease both}
+    .tilt-pulse{animation:tiltpulse 1.2s infinite}
     button:active{opacity:.7}
     ::-webkit-scrollbar{width:3px}
     ::-webkit-scrollbar-thumb{background:#1a3020;border-radius:2px}
-    ::-webkit-number-no-button{display:none}
     input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none}
     .thinking-dot{width:5px;height:5px;border-radius:50%;display:inline-block;margin:0 2px}
+    .kbd-hint{color:#2a3e2a;font-size:9px;text-align:center;margin-top:6px;letter-spacing:.5px}
   </style>
 </head>
 <body>
@@ -46,20 +53,21 @@
     <div id="coach-panel"></div>
   </div>
 </div>
-<div id="ai-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:999;display:none;align-items:flex-end;justify-content:center"></div>
+<div id="ai-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:999;align-items:flex-end;justify-content:center"></div>
 
 <script>
 'use strict';
+
 // ═══════════════════════════════════════
 // CONSTANTS & GAME DATA
 // ═══════════════════════════════════════
-const SUITS = ['♠','♥','♦','♣'];
-const VALUES = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
-const VAL_NUM = Object.fromEntries(VALUES.map((v,i)=>[v,i+2]));
-const RED_SUITS = new Set(['♥','♦']);
-const SB=10, BB=20, PLAYER_SEAT=5;
+const SUITS=['♠','♥','♦','♣'];
+const VALUES=['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
+const VAL_NUM=Object.fromEntries(VALUES.map((v,i)=>[v,i+2]));
+const RED_SUITS=new Set(['♥','♦']);
+const SB=10,BB=20,PLAYER_SEAT=5;
 
-const AI_CONFIGS = [
+const AI_CONFIGS=[
   {id:'gpt4',  name:'GPT-4o', emoji:'🤖',color:'#00D4AA',chips:3000},
   {id:'gemini',name:'Gemini', emoji:'💫',color:'#4A9EFF',chips:3000},
   {id:'llama', name:'Llama 3',emoji:'🦙',color:'#FF8C42',chips:3000},
@@ -67,7 +75,7 @@ const AI_CONFIGS = [
   {id:'grok',  name:'Grok',   emoji:'⚡',color:'#FFD700',chips:3000},
 ];
 
-const PERSONAS = {
+const PERSONAS={
   gpt4:{aggression:.80,bluffFreq:.40,panicFold:.12,betSizing:[.65,1.0,1.4],slowPlay:.06,preflopCont:.68,streetAgg:[1.0,1.15,1.3,1.5],threeBetFreq:.32,cBetFreq:.78,foldTo3bet:.28,donkFreq:.08,positionAdj:.18,tiltable:false,
     lines:{bluff:['你们都是菜鸡','梭了，怂就认输','不服来战'],strong:['感受一下压力','这把我必赢','加满'],call:['就这点钱也敢下','看你底牌','行吧跟了'],fold:['这把不值得','等好牌','放过你了'],check:['先看看','让你走一步','节约子弹'],reraise:['还敢再加？','好啊，奉陪','来吧']}},
   gemini:{aggression:.32,bluffFreq:.10,panicFold:.42,betSizing:[.28,.45,.65],slowPlay:.65,preflopCont:.32,streetAgg:[.5,.7,.85,1.2],threeBetFreq:.08,cBetFreq:.38,foldTo3bet:.62,donkFreq:.04,positionAdj:.06,tiltable:false,
@@ -79,6 +87,36 @@ const PERSONAS = {
   grok:{aggression:.88,bluffFreq:.52,panicFold:.07,betSizing:[.90,1.30,2.8],slowPlay:.03,preflopCont:.82,streetAgg:[1.2,1.5,1.7,2.0],threeBetFreq:.50,cBetFreq:.88,foldTo3bet:.12,donkFreq:.22,positionAdj:.10,tiltable:true,
     lines:{bluff:['你们都输了','连这都看不穿？','懒得掩饰了'],strong:['承认吧','这叫碾压','叫爸爸'],call:['小意思','无聊','就这？'],fold:['行吧这把认了','你运气好','下把补回来'],check:['让你先表演','演完了吗','准备好被收割'],reraise:['哦？来劲了','就喜欢硬碰硬','加回去']}},
 };
+
+// ═══════════════════════════════════════
+// NEW: ACHIEVEMENTS
+// ═══════════════════════════════════════
+const ACH=[
+  {id:'first_win',   name:'初出茅庐', emoji:'🌱', desc:'赢得第一局',          color:'#44CC77'},
+  {id:'royal_flush', name:'天选之人', emoji:'👑', desc:'摸到同花大顺',        color:'#FFD700'},
+  {id:'all_in_win',  name:'背水一战', emoji:'⚡', desc:'全押并赢得底池',      color:'#4A9EFF'},
+  {id:'comeback',    name:'绝地反击', emoji:'🔥', desc:'筹码低于500时赢牌',   color:'#FF8C42'},
+  {id:'ten_wins',    name:'常胜将军', emoji:'🏆', desc:'累计赢10局',          color:'#FFD700'},
+  {id:'bluff_win',   name:'心理大师', emoji:'🎭', desc:'对手全弃牌赢底池',    color:'#CC88FF'},
+  {id:'big_pot',     name:'豪取万金', emoji:'💰', desc:'单局底池超过1000',    color:'#B8943A'},
+  {id:'streak3',     name:'三连红',   emoji:'🎯', desc:'连续赢3局',           color:'#FF5544'},
+  {id:'streak5',     name:'五连无敌', emoji:'🌟', desc:'连续赢5局',           color:'#CC88FF'},
+  {id:'survivor',    name:'劫后余生', emoji:'💀', desc:'筹码低于100时依然存活',color:'#FF8C42'},
+];
+
+// ═══════════════════════════════════════
+// NEW: RANK SYSTEM
+// ═══════════════════════════════════════
+const RANKS=[
+  {name:'新手', emoji:'🃏', threshold:0,      color:'#7a9a84'},
+  {name:'学徒', emoji:'⚔️',  threshold:3000,   color:'#7BB86A'},
+  {name:'老手', emoji:'💎',  threshold:12000,  color:'#4A9EFF'},
+  {name:'高手', emoji:'🔥',  threshold:35000,  color:'#FF8C42'},
+  {name:'大师', emoji:'👑',  threshold:90000,  color:'#FFD700'},
+  {name:'传奇', emoji:'🌟',  threshold:250000, color:'#CC88FF'},
+];
+function getPlayerRank(){const w=S.stats.totalChipsWon;let r=RANKS[0];for(const x of RANKS){if(w>=x.threshold)r=x;}return r;}
+function getNextRank(){const w=S.stats.totalChipsWon;for(const x of RANKS){if(w<x.threshold)return x;}return null;}
 
 // ═══════════════════════════════════════
 // DECK & HAND UTILS
@@ -206,38 +244,149 @@ function makeAiDecision(ai,comm,pot,curBet){
 }
 
 // ═══════════════════════════════════════
+// NEW: FORMAT UTILITIES
+// ═══════════════════════════════════════
+function fmtChips(n){
+  if(n>=1000000)return(n/1000000).toFixed(1).replace('.0','')+' M';
+  if(n>=10000)return(n/1000).toFixed(1).replace('.0','')+' K';
+  if(n>=1000)return(n/1000).toFixed(1).replace('.0','')+' K';
+  return n.toLocaleString();
+}
+
+// ═══════════════════════════════════════
+// NEW: SOUND SYSTEM (Web Audio API)
+// ═══════════════════════════════════════
+let _pkrCtx=null;
+function _getCtx(){
+  if(!S.soundOn)return null;
+  try{return _pkrCtx||(_pkrCtx=new(window.AudioContext||window.webkitAudioContext)());}catch(e){return null;}
+}
+function _beep(freq,dur=0.08,vol=0.18,wave='sine',delay=0){
+  const ctx=_getCtx();if(!ctx)return;
+  const o=ctx.createOscillator(),g=ctx.createGain();
+  o.connect(g);g.connect(ctx.destination);
+  o.type=wave;o.frequency.value=freq;
+  const t=ctx.currentTime+delay;
+  g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vol,t+0.01);
+  g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+  o.start(t);o.stop(t+dur+0.05);
+}
+function snd(type){
+  if(type==='deal'){_beep(880,0.04,0.1,'triangle')}
+  else if(type==='win'){[523,659,784,1047].forEach((f,i)=>_beep(f,0.18,0.18,'sine',i*0.09));}
+  else if(type==='lose'){[350,280,210].forEach((f,i)=>_beep(f,0.18,0.13,'sine',i*0.1));}
+  else if(type==='click'){_beep(600,0.03,0.1,'square');}
+  else if(type==='fold'){_beep(280,0.1,0.12,'sine');}
+  else if(type==='raise'){_beep(720,0.04,0.12,'sawtooth');}
+  else if(type==='ach'){[800,1000,1260].forEach((f,i)=>_beep(f,0.16,0.2,'sine',i*0.1));}
+}
+
+// ═══════════════════════════════════════
+// NEW: STATS PERSISTENCE
+// ═══════════════════════════════════════
+const _SK='pkr_v4';
+function loadStats(){
+  try{const s=JSON.parse(localStorage.getItem(_SK)||'null');if(s&&typeof s.totalWins==='number')return s;}catch(e){}
+  return{totalWins:0,totalLosses:0,winStreak:0,bestStreak:0,totalChipsWon:0,chipHistory:[3000],achievements:[]};
+}
+function saveStats(){
+  try{localStorage.setItem(_SK,JSON.stringify(S.stats));}catch(e){}
+}
+
+// ═══════════════════════════════════════
+// NEW: ACHIEVEMENT TOASTS
+// ═══════════════════════════════════════
+let _tQ=[],_tBusy=false;
+function unlockAch(id){
+  if(S.stats.achievements.includes(id))return;
+  const a=ACH.find(x=>x.id===id);if(!a)return;
+  S.stats.achievements.push(id);saveStats();snd('ach');
+  _tQ.push(a);_nextToast();
+}
+function _nextToast(){
+  if(_tBusy||!_tQ.length)return;
+  _tBusy=true;const a=_tQ.shift();
+  const el=document.createElement('div');
+  el.className='toast-in';
+  el.style.cssText=`position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:9999;background:linear-gradient(135deg,#14281a,#0d1e12);border:2px solid ${a.color};border-radius:18px;padding:11px 18px;display:flex;align-items:center;gap:11px;box-shadow:0 8px 40px rgba(0,0,0,.85),0 0 30px ${a.color}44;pointer-events:none;min-width:190px;max-width:310px`;
+  el.innerHTML=`<span style="font-size:28px;line-height:1;flex-shrink:0">${a.emoji}</span><div><div style="color:#FFD700;font-weight:900;font-size:10px;letter-spacing:1px;margin-bottom:2px">🔓 成就解锁</div><div style="color:${a.color};font-weight:900;font-size:14px;line-height:1.2">${a.name}</div><div style="color:#5a7a64;font-size:10px;margin-top:3px">${a.desc}</div></div>`;
+  document.body.appendChild(el);
+  setTimeout(()=>{
+    el.classList.remove('toast-in');el.classList.add('toast-out');
+    setTimeout(()=>{el.remove();_tBusy=false;_nextToast();},380);
+  },2900);
+}
+
+// ═══════════════════════════════════════
+// NEW: CHIP HISTORY CHART
+// ═══════════════════════════════════════
+function chipChartSVG(hist){
+  if(!hist||hist.length<2)return`<div style="color:#2a4a34;font-size:11px;text-align:center;padding:14px 0">再打几局后显示筹码走势图 📈</div>`;
+  const W=268,H=72,P=4;
+  const mn=Math.min(...hist),mx=Math.max(...hist);
+  const rng=Math.max(mx-mn,200);
+  const px=i=>P+(i/(Math.max(hist.length-1,1)))*(W-P*2);
+  const py=v=>H-P-((v-mn)/rng)*(H-P*2);
+  const pts=hist.map((v,i)=>`${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(' ');
+  const last=hist[hist.length-1],first=hist[0];
+  const col=last>=first?'#44CC77':'#FF6655';
+  const baselineY=py(3000);
+  const showBase=mn<=3000&&mx>=3000;
+  return`<div style="padding:2px 0 8px">
+  <svg width="100%" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="display:block;height:72px">
+    <defs>
+      <linearGradient id="cg" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${col}" stop-opacity=".28"/>
+        <stop offset="100%" stop-color="${col}" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    ${showBase?`<line x1="${P}" y1="${baselineY.toFixed(1)}" x2="${(W-P)}" y2="${baselineY.toFixed(1)}" stroke="#2a4a34" stroke-width="1" stroke-dasharray="4,3" opacity=".8"/>`:''}
+    <polygon points="${pts} ${px(hist.length-1).toFixed(1)},${H} ${P},${H}" fill="url(#cg)"/>
+    <polyline points="${pts}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${px(hist.length-1).toFixed(1)}" cy="${py(last).toFixed(1)}" r="3.5" fill="${col}"/>
+  </svg>
+  <div style="display:flex;justify-content:space-between;margin-top:5px">
+    <span style="color:#3a5a42;font-size:10px">起始 ◈${fmtChips(first)}</span>
+    <span style="color:${col};font-size:10px;font-weight:700">当前 ◈${fmtChips(last)} ${last>first?'▲':'▼'}</span>
+  </div></div>`;
+}
+
+// ═══════════════════════════════════════
 // GAME STATE
 // ═══════════════════════════════════════
-let S_GEN = 0; // incremented each hand to cancel stale runOrbit calls
-const S = {
-  phase:'lobby', playerCards:[], comm:[], pot:0, curBet:0, playerBet:0,
-  playerChips:3000, playerFolded:false,
-  ais: AI_CONFIGS.map(a=>({...a,cards:[],bet:0,folded:false,thinking:false,lastAction:null,comment:'',showCards:false,pos:null,decisionLog:[]})),
-  result:null, waiting:false, handNum:0, raiseAmt:60, raiseBtnLabel:null,
-  tab:'analysis', equity:null, outs:null, nuts:null, betAdvice:null,
-  dealerPos:0, currentPlayerPos:null, showCoach:true, aiDetail:null, handHistory:[],
-  deck:[], animatedComm:new Set(), playerCardsDealt:false,
-  playerLog:[], // current hand player actions
+let S_GEN=0;
+const S={
+  phase:'lobby',playerCards:[],comm:[],pot:0,curBet:0,playerBet:0,
+  playerChips:3000,playerFolded:false,
+  ais:AI_CONFIGS.map(a=>({...a,cards:[],bet:0,folded:false,thinking:false,lastAction:null,comment:'',showCards:false,pos:null,decisionLog:[]})),
+  result:null,waiting:false,handNum:0,raiseAmt:60,raiseBtnLabel:null,
+  tab:'analysis',equity:null,outs:null,nuts:null,betAdvice:null,
+  dealerPos:0,currentPlayerPos:null,showCoach:true,aiDetail:null,handHistory:[],
+  deck:[],animatedComm:new Set(),playerCardsDealt:false,
+  playerLog:[],
   orbit:{toAct:[],curBet:0,playerStreetBet:0,pFolded:false},
+  // NEW additions
+  soundOn:true,
+  playerWasAllin:false,
+  playerChipsAtHandStart:3000,
+  stats:loadStats(),
 };
 
 // ═══════════════════════════════════════
 // CARD RENDERING
 // ═══════════════════════════════════════
-function cardHTML(card, hidden=false, size='md') {
+function cardHTML(card,hidden=false,size='md'){
   const dims={sm:{w:34,h:48,vf:9,sf:16,mf:9},md:{w:54,h:76,vf:13,sf:28,mf:13},lg:{w:68,h:96,vf:15,sf:34,mf:15}}[size];
   if(hidden)return`<div style="width:${dims.w}px;height:${dims.h}px;border-radius:6px;flex-shrink:0;background:linear-gradient(150deg,#1a3d5c,#0e2438);border:1.5px solid #1f4d72;box-shadow:0 3px 8px rgba(0,0,0,.7);display:inline-flex;align-items:center;justify-content:center"><span style="color:#1f4d72;font-size:${dims.vf+2}px">◇</span></div>`;
   if(!card)return`<div style="width:${dims.w}px;height:${dims.h}px;border-radius:6px;flex-shrink:0;border:1.5px dashed rgba(255,255,255,.08);background:rgba(0,0,0,.15)"></div>`;
   const isRed=RED_SUITS.has(card.suit);
   return`<div style="width:${dims.w}px;height:${dims.h}px;border-radius:6px;flex-shrink:0;background:#FFFCF0;border:1px solid #d8d0a0;box-shadow:0 4px 10px rgba(0,0,0,.65);display:inline-flex;flex-direction:column;justify-content:space-between;padding:3px 4px;color:${isRed?'#C81010':'#111'}"><div style="font-size:${dims.vf}px;font-weight:900;line-height:1;font-family:Georgia,serif">${card.value}</div><div style="font-size:${dims.sf}px;text-align:center;line-height:1">${card.suit}</div><div style="font-size:${dims.mf}px;font-weight:900;line-height:1;transform:rotate(180deg);align-self:flex-end;font-family:Georgia,serif">${card.value}</div></div>`;
 }
-
 function posToken(pos){
   if(!pos)return'';
   const s={D:{bg:'#B8943A',c:'#000'},SB:{bg:'#3a6aCC',c:'#fff'},BB:{bg:'#CC3a3a',c:'#fff'}}[pos];
   return`<span style="background:${s.bg};color:${s.c};border-radius:50%;width:17px;height:17px;display:inline-flex;align-items:center;justify-content:center;font-size:8px;font-weight:900;flex-shrink:0;letter-spacing:-.3px;margin-left:3px">${pos}</span>`;
 }
-
 function badge(text,color,bg){
   return`<span style="background:${bg||color+'22'};border:1px solid ${color}44;border-radius:20px;padding:2px 9px;font-size:11px;color:${color};font-weight:700;letter-spacing:.3px">${text}</span>`;
 }
@@ -247,22 +396,37 @@ function badge(text,color,bg){
 // ═══════════════════════════════════════
 function renderTopBar(){
   const PHASE_CN={lobby:'大厅',preflop:'翻牌前',flop:'翻牌圈',turn:'转牌圈',river:'河牌圈',showdown:'摊牌'};
+  const rank=getPlayerRank();
+  const streak=S.stats.winStreak;
   document.getElementById('topbar').innerHTML=`
-  <div style="background:#080D09;border-bottom:1.5px solid #0D1E0F;padding:11px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+  <div style="background:#080D09;border-bottom:1.5px solid #0D1E0F;padding:10px 16px 9px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
     <div>
-      <div style="color:#B8943A;font-weight:900;font-size:17px;letter-spacing:3px">POKER</div>
-      <div style="color:#2A4030;font-size:9px;letter-spacing:1.5px;margin-top:1px">${PHASE_CN[S.phase]||S.phase} · 第${S.handNum}局 · 盲注 10/20</div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <div style="color:#B8943A;font-weight:900;font-size:17px;letter-spacing:3px">POKER</div>
+        <div style="background:${rank.color}1a;border:1px solid ${rank.color}55;border-radius:20px;padding:2px 8px;display:flex;align-items:center;gap:4px;flex-shrink:0">
+          <span style="font-size:10px">${rank.emoji}</span>
+          <span style="color:${rank.color};font-size:10px;font-weight:800">${rank.name}</span>
+        </div>
+        ${streak>=2?`<div style="background:rgba(255,85,50,.12);border:1px solid rgba(255,85,50,.38);border-radius:20px;padding:2px 7px;color:#FF8866;font-size:10px;font-weight:800;flex-shrink:0">🔥 ${streak} 连</div>`:''}
+      </div>
+      <div style="color:#2A4030;font-size:9px;letter-spacing:1.2px;margin-top:2px">${PHASE_CN[S.phase]||S.phase} · 第${S.handNum}局 · 盲注 10/20</div>
     </div>
-    <div style="display:flex;gap:10px;align-items:center">
-      ${S.pot>0?`<div style="text-align:right"><div style="color:#3A5A42;font-size:9px;letter-spacing:.5px">底 池</div><div style="color:#B8943A;font-weight:900;font-size:17px;line-height:1.1">◈ ${S.pot.toLocaleString()}</div></div>`:''}
+    <div style="display:flex;gap:8px;align-items:center">
+      ${S.pot>0?`<div style="text-align:right"><div style="color:#3A5A42;font-size:9px;letter-spacing:.5px">底 池</div><div style="color:#B8943A;font-weight:900;font-size:17px;line-height:1.1">◈ ${fmtChips(S.pot)}</div></div>`:''}
       <div style="text-align:right">
         <div style="color:#3A5A42;font-size:9px;letter-spacing:.5px">筹 码</div>
-        <div style="color:#44CC77;font-weight:900;font-size:17px;line-height:1.1">◈ ${S.playerChips.toLocaleString()}</div>
+        <div style="color:#44CC77;font-weight:900;font-size:17px;line-height:1.1">◈ ${fmtChips(S.playerChips)}</div>
       </div>
-      <button onclick="toggleCoach()" style="background:${S.showCoach?'rgba(184,148,58,.15)':'rgba(68,180,100,.12)'};border:1.5px solid ${S.showCoach?'rgba(184,148,58,.4)':'rgba(68,180,100,.35)'};border-radius:10px;padding:6px 9px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px">
-        <span style="font-size:15px;line-height:1">${S.showCoach?'💡':'🎯'}</span>
-        <span style="font-size:8px;font-weight:700;letter-spacing:.5px;color:${S.showCoach?'#B8943A':'#44CC77'}">${S.showCoach?'提示开':'训练中'}</span>
-      </button>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <button onclick="toggleCoach()" style="background:${S.showCoach?'rgba(184,148,58,.15)':'rgba(68,180,100,.12)'};border:1.5px solid ${S.showCoach?'rgba(184,148,58,.4)':'rgba(68,180,100,.35)'};border-radius:9px;padding:5px 8px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:1px">
+          <span style="font-size:13px;line-height:1">${S.showCoach?'💡':'🎯'}</span>
+          <span style="font-size:7px;font-weight:700;color:${S.showCoach?'#B8943A':'#44CC77'}">${S.showCoach?'提示开':'训练中'}</span>
+        </button>
+        <button onclick="toggleSound()" style="background:${S.soundOn?'rgba(68,180,100,.1)':'rgba(60,60,60,.15)'};border:1.5px solid ${S.soundOn?'rgba(68,180,100,.3)':'rgba(60,60,60,.25)'};border-radius:9px;padding:5px 8px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:1px">
+          <span style="font-size:13px;line-height:1">${S.soundOn?'🔊':'🔇'}</span>
+          <span style="font-size:7px;font-weight:700;color:${S.soundOn?'#44AA66':'#4a4a4a'}">${S.soundOn?'音效':'静音'}</span>
+        </button>
+      </div>
     </div>
   </div>`;
 }
@@ -271,47 +435,44 @@ function renderAiRow(){
   const row=document.getElementById('ai-row');
   row.innerHTML=S.ais.map((ai,i)=>{
     const fold=ai.folded;
+    const tilted=!fold&&PERSONAS[ai.id]?.tiltable&&ai.chips<800;
     const w=fold?76:112;
     const thinking=ai.thinking?`<div style="display:flex;gap:3px;margin-top:5px">${[0,1,2].map(k=>`<div class="thinking-dot" style="background:${ai.color};animation:blink .8s ${k*.22}s infinite"></div>`).join('')}</div>`:'';
-    const actionBadge=(!fold&&ai.lastAction&&ai.lastAction!=='blind')?badge(ai.lastAction==='fold'?'弃牌':ai.lastAction==='raise'?`加注 ${ai.bet}`:'跟注',ai.lastAction==='fold'?'#FF5544':ai.lastAction==='raise'?'#FFD700':'#44CC77'):'';
+    const actionBadge=(!fold&&ai.lastAction&&ai.lastAction!=='blind')?badge(ai.lastAction==='fold'?'弃牌':ai.lastAction==='raise'?`+${fmtChips(ai.bet)}`:'跟注',ai.lastAction==='fold'?'#FF5544':ai.lastAction==='raise'?'#FFD700':'#44CC77'):'';
     const blindBadge=(!fold&&ai.lastAction==='blind')?badge(ai.comment||'盲注','#5577AA'):'';
     const comment=(!fold&&ai.comment&&ai.lastAction!=='blind')?`<div style="font-size:10px;color:#5a7a64;font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px;margin-top:2px">"${ai.comment}"</div>`:'';
+    const tiltBadge=tilted?`<div style="font-size:8px;color:#FF6644;font-weight:800;letter-spacing:.3px;margin-top:2px">🌋 倾斜</div>`:'';
     const cards=fold?
       `<div style="display:flex;gap:3px;margin-bottom:0">${(ai.cards||[]).map(()=>`<div style="width:22px;height:30px;border-radius:4px;background:#0e120e;border:1px solid #111;flex-shrink:0"></div>`).join('')}</div>`:
       `<div style="display:flex;gap:3px;margin-bottom:6px">${(ai.cards||[]).map(c=>cardHTML(ai.showCards?c:null,!ai.showCards,'sm')).join('')}</div>`;
-    return`<div onclick="showAiDetail(${i})" style="flex:0 0 auto;width:${w}px;background:${fold?'rgba(8,10,8,.7)':'rgba(10,20,14,.95)'};border:1.5px solid ${fold?'#141814':ai.color+'33'};border-radius:12px;padding:${fold?'7px 8px':'8px 10px'};opacity:${fold?.32:1};transition:width .4s,opacity .4s;box-shadow:${ai.thinking?`0 0 22px ${ai.color}44`:''};overflow:hidden;cursor:pointer">
+    const tiltClass=tilted?'tilt-pulse':'';
+    return`<div onclick="showAiDetail(${i})" class="${tiltClass}" style="flex:0 0 auto;width:${w}px;background:${fold?'rgba(8,10,8,.7)':'rgba(10,20,14,.95)'};border:1.5px solid ${fold?'#141814':tilted?'rgba(255,80,50,.6)':ai.color+'33'};border-radius:12px;padding:${fold?'7px 8px':'8px 10px'};opacity:${fold?.32:1};transition:width .4s,opacity .4s;box-shadow:${ai.thinking?`0 0 22px ${ai.color}44`:''};overflow:hidden;cursor:pointer">
       <div style="display:flex;align-items:center;gap:5px;margin-bottom:${fold?4:6}px">
         <span style="font-size:${fold?14:18}px;line-height:1">${ai.emoji}</span>
         <div style="min-width:0">
           <div style="display:flex;align-items:center">
-            <div style="color:${ai.color};font-size:${fold?10:12}px;font-weight:800;line-height:1.2;white-space:nowrap">${fold?ai.name.slice(0,6):ai.name}</div>
+            <div style="color:${tilted?'#FF8866':ai.color};font-size:${fold?10:12}px;font-weight:800;line-height:1.2;white-space:nowrap">${fold?ai.name.slice(0,6):ai.name}</div>
             ${!fold?posToken(ai.pos):''}
           </div>
-          ${!fold?`<div style="color:#3a5a42;font-size:10px;font-weight:600">◈ ${ai.chips.toLocaleString()}</div>`:`<div style="color:#1e2e1e;font-size:9px">弃牌</div>`}
+          ${!fold?`<div style="color:#3a5a42;font-size:10px;font-weight:600">◈ ${fmtChips(ai.chips)}</div>`:`<div style="color:#1e2e1e;font-size:9px">弃牌</div>`}
         </div>
       </div>
-      ${cards}${actionBadge}${blindBadge}${comment}${thinking}
+      ${cards}${actionBadge}${blindBadge}${comment}${tiltBadge}${thinking}
     </div>`;
   }).join('');
 }
 
 function renderFelt(){
-  // Community cards
   document.getElementById('community-cards').innerHTML=
     (()=>{const html=[0,1,2,3,4].map((i,idx)=>`<div class="${S.comm[i]&&!S.animatedComm.has(i)?'deal':''}" style="animation-delay:${idx*.08}s">${cardHTML(S.comm[i]||null,false,'md')}</div>`).join('');S.animatedComm=new Set([0,1,2,3,4].filter(i=>S.comm[i]));return html;})()
-
-  // Pot badge
   document.getElementById('pot-badge').innerHTML=S.pot>0?
-    `<div style="background:rgba(0,0,0,.55);border:1px solid rgba(184,148,58,.35);border-radius:22px;padding:4px 16px;color:#B8943A;font-size:13px;font-weight:800;letter-spacing:.5px">♛ 底池 ${S.pot.toLocaleString()}</div>`:'';
-
-  // Result overlay
+    `<div style="background:rgba(0,0,0,.55);border:1px solid rgba(184,148,58,.35);border-radius:22px;padding:4px 16px;color:#B8943A;font-size:13px;font-weight:800;letter-spacing:.5px">♛ 底池 ${fmtChips(S.pot)}</div>`:'';
   document.getElementById('result-overlay').innerHTML=S.result?
     `<div class="pop" style="background:rgba(4,8,5,.93);border:2px solid ${S.result.winner==='player'?'#44CC77':S.result.color||'#FF6655'};border-radius:16px;padding:14px 24px;text-align:center">
       <div style="font-size:32px;margin-bottom:4px">${S.result.winner==='player'?'🎉':'💀'}</div>
       <div style="color:${S.result.winner==='player'?'#44CC77':S.result.color||'#FF8866'};font-weight:900;font-size:20px;margin-bottom:4px">${S.result.winner==='player'?'你赢了！':S.result.winner+' 赢了'}</div>
-      <div style="color:#4A6A54;font-size:12px">${S.result.handName} · +${S.result.amount.toLocaleString()} 筹码</div>
+      <div style="color:#4A6A54;font-size:12px">${S.result.handName} · +${fmtChips(S.result.amount)} 筹码</div>
     </div>`:'';
-
   document.getElementById('lobby-msg').style.display=S.phase==='lobby'?'block':'none';
 }
 
@@ -320,6 +481,7 @@ function renderPlayerHand(){
   if(S.phase==='lobby'){ph.innerHTML='';return}
   const toCall=Math.min(Math.max(0,S.orbit.curBet-S.orbit.playerStreetBet),S.playerChips);
   const handInfo=S.playerCards.length>0?evalHand([...S.playerCards,...S.comm]):null;
+  const allinTag=S.playerWasAllin?`<span style="background:rgba(255,80,50,.15);border:1px solid rgba(255,80,50,.5);border-radius:20px;padding:2px 8px;color:#FF6644;font-size:10px;font-weight:900">ALL IN</span>`:'';
   ph.innerHTML=`
   <div style="margin:4px 10px 0;padding:10px 14px;background:#080D09;border:1.5px solid #0D1E0F;border-radius:16px;flex-shrink:0;display:flex;align-items:center;gap:12px">
     <div style="display:flex;gap:8px;flex-shrink:0">
@@ -330,14 +492,15 @@ function renderPlayerHand(){
       <div style="display:flex;align-items:center;gap:7px;margin-bottom:5px;flex-wrap:wrap">
         <span style="color:#3A5A42;font-size:10px;letter-spacing:.5px">你的底牌</span>
         ${S.currentPlayerPos?posToken(S.currentPlayerPos):''}
+        ${allinTag}
       </div>
       ${S.playerFolded?`<div style="color:#FF5544;font-size:13px;font-weight:800">已弃牌</div>`:
         handInfo&&S.showCoach?badge(handInfo.n,'#B8943A'):
         handInfo?badge('? ? ?','#2A5A34'):''}
       <div style="margin-top:6px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <span style="color:#44CC77;font-size:12px;font-weight:700">◈ ${S.playerChips.toLocaleString()}</span>
-        ${S.playerBet>0?`<span style="color:#B8943A;font-size:11px">已下注 ${S.playerBet}</span>`:''}
-        ${S.waiting&&!S.playerFolded&&S.orbit.curBet>0&&S.orbit.curBet>S.orbit.playerStreetBet?`<span style="color:#88BBFF;font-size:11px">需补 ${Math.min(S.orbit.curBet-S.orbit.playerStreetBet,S.playerChips)}</span>`:''}
+        <span style="color:#44CC77;font-size:12px;font-weight:700">◈ ${fmtChips(S.playerChips)}</span>
+        ${S.playerBet>0?`<span style="color:#B8943A;font-size:11px">已注 ${fmtChips(S.playerBet)}</span>`:''}
+        ${S.waiting&&!S.playerFolded&&S.orbit.curBet>0&&S.orbit.curBet>S.orbit.playerStreetBet?`<span style="color:#88BBFF;font-size:11px">补 ${fmtChips(Math.min(S.orbit.curBet-S.orbit.playerStreetBet,S.playerChips))}</span>`:''}
       </div>
     </div>
   </div>`;
@@ -360,7 +523,7 @@ function renderActionBar(){
     ];
     const quickBtns=btns.map(({label,raw})=>{
       const cv=Math.min(Math.max(raw,minRaise),S.playerChips);
-      const showAmt=cv>=1000?`${(cv/1000).toFixed(1)}k`:String(cv);
+      const showAmt=cv>=1000?fmtChips(cv):String(cv);
       const active=S.raiseBtnLabel===label;
       const grey=raw<minRaise&&label!=='全押';
       return`<button onclick="setQuickRaise('${label}',${cv})" style="flex:1;padding:6px 2px;background:${active?'rgba(184,148,58,.38)':'rgba(184,148,58,.07)'};border:1.5px solid ${active?'#B8943A':grey?'rgba(100,80,20,.15)':'rgba(184,148,58,.22)'};border-radius:8px;color:${active?'#FFD060':grey?'#4A3A18':'#8A7A40'};font-size:9px;font-weight:700;cursor:pointer;line-height:1.4;text-align:center">
@@ -372,8 +535,8 @@ function renderActionBar(){
     <div style="margin:4px 10px 14px;flex-shrink:0;background:#080D09;border:1.5px solid #0D1E0F;border-radius:16px;padding:12px 14px">
       <div style="display:flex;flex-direction:column;gap:9px">
         <div style="display:flex;gap:8px">
-          <button onclick="onFold()" style="flex:1;padding:13px 6px;background:rgba(180,50,40,.12);border:1.5px solid rgba(180,50,40,.3);border-radius:12px;color:#EE5544;font-size:15px;font-weight:800;cursor:pointer">弃牌</button>
-          <button onclick="onCall()" style="flex:2.2;padding:13px 6px;background:${canCheck?'rgba(40,140,70,.15)':'rgba(40,100,200,.15)'};border:1.5px solid ${canCheck?'rgba(40,140,70,.4)':'rgba(40,100,200,.4)'};border-radius:12px;color:${canCheck?'#44CC77':'#88BBFF'};font-size:15px;font-weight:800;cursor:pointer">${canCheck?'过牌 ✓':`跟注 ◈ ${toCall}`}</button>
+          <button onclick="snd('fold');onFold()" style="flex:1;padding:13px 6px;background:rgba(180,50,40,.12);border:1.5px solid rgba(180,50,40,.3);border-radius:12px;color:#EE5544;font-size:15px;font-weight:800;cursor:pointer">弃牌</button>
+          <button onclick="snd('click');onCall()" style="flex:2.2;padding:13px 6px;background:${canCheck?'rgba(40,140,70,.15)':'rgba(40,100,200,.15)'};border:1.5px solid ${canCheck?'rgba(40,140,70,.4)':'rgba(40,100,200,.4)'};border-radius:12px;color:${canCheck?'#44CC77':'#88BBFF'};font-size:15px;font-weight:800;cursor:pointer">${canCheck?'过牌 ✓':`跟注 ◈ ${fmtChips(toCall)}`}</button>
         </div>
         <div style="background:rgba(184,148,58,.05);border:1px solid rgba(184,148,58,.18);border-radius:12px;padding:10px 10px 9px;display:flex;flex-direction:column;gap:8px">
           <div style="display:flex;gap:5px">${quickBtns}</div>
@@ -384,14 +547,15 @@ function renderActionBar(){
               <input id="raise-input" type="number" value="${S.raiseAmt}" onchange="setRaiseAmt(this.value)" style="width:100%;height:100%;border:none;outline:none;background:transparent;text-align:center;color:#FFD060;font-size:16px;font-weight:900;padding-left:18px">
             </div>
             <button onclick="adjRaise(1)" style="width:40px;height:40px;border-radius:9px;flex-shrink:0;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#9A9A7A;font-size:20px;font-weight:700;cursor:pointer;line-height:1">+</button>
-            <button onclick="onRaise()" ${S.raiseAmt<=S.orbit.curBet||S.raiseAmt>S.playerChips?'disabled':''} style="height:40px;padding:0 18px;flex-shrink:0;background:${S.raiseAmt>S.orbit.curBet?'linear-gradient(135deg,rgba(184,148,58,.35),rgba(212,175,58,.55))':'rgba(20,20,20,.5)'};border:1.5px solid ${S.raiseAmt>S.orbit.curBet?'#B8943A':'#1A1A1A'};border-radius:9px;color:${S.raiseAmt>S.orbit.curBet?'#FFD060':'#2A2A1A'};font-size:14px;font-weight:900;cursor:${S.raiseAmt>S.orbit.curBet?'pointer':'default'};letter-spacing:.5px">加注</button>
+            <button onclick="snd('raise');onRaise()" ${S.raiseAmt<=S.orbit.curBet||S.raiseAmt>S.playerChips?'disabled':''} style="height:40px;padding:0 18px;flex-shrink:0;background:${S.raiseAmt>S.orbit.curBet?'linear-gradient(135deg,rgba(184,148,58,.35),rgba(212,175,58,.55))':'rgba(20,20,20,.5)'};border:1.5px solid ${S.raiseAmt>S.orbit.curBet?'#B8943A':'#1A1A1A'};border-radius:9px;color:${S.raiseAmt>S.orbit.curBet?'#FFD060':'#2A2A1A'};font-size:14px;font-weight:900;cursor:${S.raiseAmt>S.orbit.curBet?'pointer':'default'};letter-spacing:.5px">加注</button>
           </div>
         </div>
+        <div class="kbd-hint">⌨ F 弃牌 · 空格 跟注/过牌 · R 加注 · ↑↓ 调整金额</div>
       </div>
     </div>`;
   } else {
     ab.innerHTML=`
-    <div style="margin:4px 10px 14px;flex-shrink:0;background:#080D09;border:1.5px solid #0D1E0F;border-radius:16px;padding:12px 14px;display:flex;justify-content:center;align-items:center;padding:14px">
+    <div style="margin:4px 10px 14px;flex-shrink:0;background:#080D09;border:1.5px solid #0D1E0F;border-radius:16px;display:flex;justify-content:center;align-items:center;padding:14px">
       ${(S.phase==='showdown'||S.result)?
         `<button onclick="startHand()" style="padding:14px 32px;background:linear-gradient(135deg,#122E18,#1A4422);border:1.5px solid rgba(68,170,80,.35);border-radius:13px;color:#66DD77;font-size:16px;font-weight:900;cursor:pointer;letter-spacing:.5px">下一局 →</button>`:
         S.phase==='lobby'?
@@ -444,15 +608,15 @@ function renderCoach(){
       ${toCall>0?`<div style="background:rgba(255,255,255,.025);border-radius:11px;padding:11px 13px;border:1px solid #0f2014">
         <div style="color:#7a9a84;font-size:11px;letter-spacing:.5px;margin-bottom:6px">底池赔率</div>
         <div style="display:flex;justify-content:space-between;align-items:center">
-          <div><div style="color:#ccddd4;font-size:13px">需跟注 <span style="color:#B8943A;font-weight:800">◈ ${toCall}</span></div><div style="color:#3a5a42;font-size:11px;margin-top:2px">底池 → ${S.pot+toCall}</div></div>
+          <div><div style="color:#ccddd4;font-size:13px">需跟注 <span style="color:#B8943A;font-weight:800">◈ ${fmtChips(toCall)}</span></div><div style="color:#3a5a42;font-size:11px;margin-top:2px">底池 → ${fmtChips(S.pot+toCall)}</div></div>
           <div style="text-align:right"><div style="color:#ccddd4;font-size:13px">赔率 <span style="font-weight:800">${Math.round(toCall/(S.pot+toCall)*100)}%</span></div>${S.equity!=null?`<div style="color:${S.equity>Math.round(toCall/(S.pot+toCall)*100)?'#44CC77':'#FF6655'};font-size:11px;margin-top:2px;font-weight:700">${S.equity>Math.round(toCall/(S.pot+toCall)*100)?'✓ 值得跟注':'✗ 赔率不划算'}</div>`:''}</div>
         </div>
       </div>`:''}
       ${adv?`<div style="background:${adv.color}11;border:1.5px solid ${adv.color}33;border-radius:11px;padding:10px 12px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
           <div style="display:flex;align-items:center;gap:7px"><span style="font-size:17px">${adv.action==='fold'?'🔴':adv.action==='raise'?'🟡':'🟢'}</span><span style="color:${adv.color};font-weight:900;font-size:14px">${adv.label}</span></div>
-          ${adv.action==='raise'&&adv.amount>0?`<span style="color:#B8943A;font-weight:800;font-size:13px">◈ ${adv.amount}</span>`:''}
-          ${adv.action==='call'&&toCall>0?`<span style="color:#4A9EFF;font-weight:800;font-size:13px">◈ ${toCall}</span>`:''}
+          ${adv.action==='raise'&&adv.amount>0?`<span style="color:#B8943A;font-weight:800;font-size:13px">◈ ${fmtChips(adv.amount)}</span>`:''}
+          ${adv.action==='call'&&toCall>0?`<span style="color:#4A9EFF;font-weight:800;font-size:13px">◈ ${fmtChips(toCall)}</span>`:''}
         </div>
         <div style="color:#b0c8b8;font-size:12px;line-height:1.6">${adv.reason}</div>
       </div>`:''}
@@ -486,10 +650,40 @@ function renderCoach(){
       </div>`:''}`;
     }
   } else if(S.tab==='review'){
+    // RANK PROGRESS
+    const rank=getPlayerRank();const nr=getNextRank();
+    const progress=nr?Math.min(Math.round(S.stats.totalChipsWon/nr.threshold*100),100):100;
+    const rankBar=`
+    <div style="background:rgba(255,255,255,.025);border:1px solid #0f2014;border-radius:12px;padding:10px 12px;margin-bottom:10px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div style="display:flex;align-items:center;gap:7px">
+          <span style="font-size:22px">${rank.emoji}</span>
+          <div>
+            <div style="color:${rank.color};font-weight:900;font-size:15px">${rank.name}</div>
+            <div style="color:#3a5a42;font-size:10px">累计赢得 ◈${fmtChips(S.stats.totalChipsWon)}</div>
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div style="color:#3a5a42;font-size:10px">胜 / 总</div>
+          <div style="color:#44CC77;font-size:14px;font-weight:900">${S.stats.totalWins} / ${S.stats.totalWins+S.stats.totalLosses}</div>
+        </div>
+      </div>
+      ${nr?`<div style="margin-bottom:5px">
+        <div style="display:flex;justify-content:space-between;font-size:9px;color:#3a5a42;margin-bottom:3px"><span>→ 下一段位：${nr.emoji} ${nr.name}</span><span>${progress}%</span></div>
+        <div style="height:4px;background:rgba(255,255,255,.07);border-radius:2px;overflow:hidden"><div style="height:100%;width:${progress}%;background:linear-gradient(90deg,${rank.color}88,${rank.color});border-radius:2px;transition:width .5s"></div></div>
+      </div>`:'<div style="color:#FFD700;font-size:11px;text-align:center;padding:3px 0">🌟 已达最高段位</div>'}
+    </div>`;
+
+    // CHIP CHART
+    const chartBlock=`
+    <div style="background:rgba(255,255,255,.025);border:1px solid #0f2014;border-radius:12px;padding:10px 12px;margin-bottom:10px">
+      <div style="color:#7a9a84;font-size:11px;letter-spacing:.5px;margin-bottom:4px">筹码走势</div>
+      ${chipChartSVG(S.stats.chipHistory)}
+    </div>`;
+
     if(S.handHistory.length===0){
-      content=`<div style="text-align:center;padding:24px 0;color:#2a4a34;font-size:13px;line-height:2">完成一局后在此复盘<br><span style="font-size:11px;color:#1a3020">记录你的每个决策与风格分析</span></div>`;
+      content=rankBar+chartBlock+`<div style="text-align:center;padding:18px 0;color:#2a4a34;font-size:13px;line-height:2">完成一局后在此复盘<br><span style="font-size:11px;color:#1a3020">记录你的每个决策与风格分析</span></div>`;
     } else {
-      // ── Style analysis across all hands ──
       const allLogs=S.handHistory.flatMap(h=>h.playerLog||[]);
       const total=allLogs.length;
       const folds=allLogs.filter(a=>a.action==='fold').length;
@@ -502,22 +696,32 @@ function renderCoach(){
       const foldPct=total>0?Math.round(folds/total*100):0;
       const wins=S.handHistory.filter(h=>h.winner==='player').length;
       const winRate=S.handHistory.length>0?Math.round(wins/S.handHistory.length*100):0;
-      // Mistakes: fold with equity>=50, call with equity<30 and potOdds>equity
       const badFolds=allLogs.filter(a=>a.action==='fold'&&a.equity!=null&&a.equity>=50).length;
       const looseCalls=allLogs.filter(a=>a.action==='call'&&a.equity!=null&&a.equity<30&&a.potOdds>0&&a.equity<a.potOdds).length;
       const overFolds=allLogs.filter(a=>a.action==='fold'&&a.equity!=null&&a.equity>=40&&a.potOdds>0&&a.equity>=a.potOdds).length;
-      // Style label
-      let styleLabel='', styleColor='#B8943A', styleDesc='';
+      let styleLabel='',styleColor='#B8943A',styleDesc='';
       if(total<4){styleLabel='数据积累中';styleColor='#3a5a42';styleDesc='再打几局，分析你的风格';}
       else if(vpip>=70&&raises/Math.max(total,1)>=.35){styleLabel='激进鱼';styleColor='#FF6655';styleDesc='入池太松，加注太多，容易被人读牌';}
       else if(vpip>=60&&raises/Math.max(total,1)>=.25){styleLabel='LAG 打法';styleColor='#FF8C42';styleDesc='宽松激进，需要更强的读牌能力支撑';}
       else if(vpip<=30&&raises/Math.max(total,1)>=.3){styleLabel='TAG 打法';styleColor='#44CC77';styleDesc='紧凶是经典赢钱打法，继续保持';}
       else if(vpip<=25&&raises/Math.max(total,1)<.15){styleLabel='Nit 打法';styleColor='#4A9EFF';styleDesc='过于保守，被人读出范围，应适当扩宽参与';}
-      else if(foldPct>=55){styleLabel='Call Station';styleColor='#FF8C42';styleDesc='跟注过多，缺乏主动性，容易成为被动局面';}
+      else if(foldPct>=55){styleLabel='Call Station';styleColor='#FF8C42';styleDesc='跟注过多，缺乏主动性';}
       else{styleLabel='均衡打法';styleColor='#B8943A';styleDesc='风格相对均衡，继续优化细节';}
 
-      const STREET_CN={pre:'翻前',flop:'翻牌',turn:'转牌',river:'河牌'};
-      const aColor=a=>a==='fold'?'#FF5544':a==='raise'?'#FFD700':a==='check'?'#7a9a84':'#44CC77';
+      // ACHIEVEMENTS BLOCK
+      const achBlock=`
+      <div style="background:rgba(255,255,255,.025);border:1px solid #0f2014;border-radius:12px;padding:10px 12px;margin-bottom:10px">
+        <div style="color:#7a9a84;font-size:11px;letter-spacing:.5px;margin-bottom:8px">成就收集 ${S.stats.achievements.length}/${ACH.length}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          ${ACH.map(a=>{
+            const unlocked=S.stats.achievements.includes(a.id);
+            return`<div title="${a.name}: ${a.desc}" style="display:flex;align-items:center;gap:4px;background:${unlocked?a.color+'15':'rgba(255,255,255,.03)'};border:1px solid ${unlocked?a.color+'44':'rgba(255,255,255,.06)'};border-radius:20px;padding:3px 8px 3px 6px;opacity:${unlocked?1:.38}">
+              <span style="font-size:13px;${unlocked?'':'filter:grayscale(1)'}">${a.emoji}</span>
+              <span style="color:${unlocked?a.color:'#3a5a42'};font-size:9px;font-weight:700">${a.name}</span>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
 
       const statBlock=`
       <div style="background:rgba(255,255,255,.025);border:1px solid #0f2014;border-radius:12px;padding:12px 14px;margin-bottom:10px">
@@ -528,7 +732,7 @@ function renderCoach(){
             <div style="color:#3a5a42;font-size:11px;margin-top:3px;line-height:1.5">${styleDesc}</div>
           </div>
           <div style="text-align:right;flex-shrink:0;margin-left:10px">
-            <div style="color:#3a5a42;font-size:10px">胜率</div>
+            <div style="color:#3a5a42;font-size:10px">近期胜率</div>
             <div style="color:${winRate>=50?'#44CC77':'#FF6655'};font-size:22px;font-weight:900">${winRate}%</div>
             <div style="color:#2a3a2a;font-size:9px">${wins}/${S.handHistory.length} 局</div>
           </div>
@@ -548,11 +752,13 @@ function renderCoach(){
         <div style="background:rgba(255,100,80,.06);border:1px solid rgba(255,100,80,.2);border-radius:9px;padding:8px 10px">
           <div style="color:#FF8866;font-size:11px;font-weight:700;margin-bottom:5px">⚠ 发现潜在问题</div>
           ${badFolds>0?`<div style="color:#6a8a74;font-size:11px;line-height:1.6;margin-bottom:3px">· 有 <span style="color:#FFD700;font-weight:700">${badFolds}</span> 次弃牌时胜率≥50%，可能放弃了优势</div>`:''}
-          ${looseCalls>0?`<div style="color:#6a8a74;font-size:11px;line-height:1.6;margin-bottom:3px">· 有 <span style="color:#FF8C42;font-weight:700">${looseCalls}</span> 次跟注时胜率不及底池赔率</div>`:''}
+          ${looseCalls>0?`<div style="color:#6a8a74;font-size:11px;line-height:1.6;margin-bottom:3px">· 有 <span style="color:#FF8C42;font-weight:700">${looseCalls}</span> 次跟注胜率不及底池赔率</div>`:''}
           ${overFolds>0?`<div style="color:#6a8a74;font-size:11px;line-height:1.6">· 有 <span style="color:#4A9EFF;font-weight:700">${overFolds}</span> 次弃牌赔率划算但选择了放弃</div>`:''}
         </div>`:'<div style="color:#3a6a44;font-size:11px;text-align:center;padding:4px 0">✓ 暂无明显决策失误</div>'}
       </div>`;
 
+      const STREET_CN={pre:'翻前',flop:'翻牌',turn:'转牌',river:'河牌'};
+      const aColor=a=>a==='fold'?'#FF5544':a==='raise'?'#FFD700':a==='check'?'#7a9a84':'#44CC77';
       const handCards=S.handHistory.map(h=>{
         const plog=h.playerLog||[];
         return`
@@ -565,26 +771,26 @@ function renderCoach(){
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap">
             ${(h.playerCards||[]).map(c=>`<span style="background:#FFFCF0;border-radius:4px;padding:2px 6px;font-size:11px;font-weight:800;color:${RED_SUITS.has(c.suit)?'#C81010':'#111'}">${c.value}${c.suit}</span>`).join('')}
             ${h.finalHand?`<span style="color:#B8943A;font-size:10px;margin-left:4px">→ ${h.finalHand.n}</span>`:''}
-            <span style="color:#3a5a42;font-size:10px">底池 ◈${h.pot||0}</span>
+            <span style="color:#3a5a42;font-size:10px">底池 ◈${fmtChips(h.pot||0)}</span>
           </div>
-          ${plog.length===0?`<div style="color:#2a3a2a;font-size:11px;padding:4px 0">本局无决策记录（自动过盲？）</div>`:
+          ${plog.length===0?`<div style="color:#2a3a2a;font-size:11px;padding:4px 0">本局无决策记录</div>`:
             plog.map(a=>{
               const warn=a.action==='fold'&&a.equity>=50?'⚠':a.action==='call'&&a.equity<30&&a.potOdds>a.equity?'⚠':'';
               return`<div style="display:flex;align-items:flex-start;gap:7px;padding:5px 0;border-bottom:1px solid #0a180b">
                 <span style="color:#3a5a42;font-size:9px;flex-shrink:0;padding-top:1px;width:28px">${STREET_CN[a.street]||a.street}</span>
-                <span style="background:${aColor(a.action)}22;border:1px solid ${aColor(a.action)}44;border-radius:20px;padding:1px 7px;color:${aColor(a.action)};font-size:9px;font-weight:800;flex-shrink:0">${a.action==='check'?'过牌':a.action==='fold'?'弃牌':a.action==='raise'?`加注${a.amount}`:`跟注${a.amount}`}</span>
+                <span style="background:${aColor(a.action)}22;border:1px solid ${aColor(a.action)}44;border-radius:20px;padding:1px 7px;color:${aColor(a.action)};font-size:9px;font-weight:800;flex-shrink:0">${a.action==='check'?'过牌':a.action==='fold'?'弃牌':a.action==='raise'?`加注${fmtChips(a.amount)}`:`跟注${fmtChips(a.amount)}`}</span>
                 <div style="flex:1;min-width:0">
                   <span style="color:#5a7a64;font-size:9px">${a.handName}</span>
                   ${a.equity!=null?`<span style="color:${a.equity>=60?'#44CC77':a.equity>=40?'#FFD700':'#FF6655'};font-size:9px;margin-left:5px">胜率${a.equity}%</span>`:''}
                   ${a.potOdds>0?`<span style="color:#3a5a42;font-size:9px;margin-left:4px">赔率${a.potOdds}%</span>`:''}
                 </div>
-                ${warn?`<span style="color:#FFD700;font-size:10px;flex-shrink:0" title="决策值得复盘">${warn}</span>`:''}
+                ${warn?`<span style="color:#FFD700;font-size:10px;flex-shrink:0">${warn}</span>`:''}
               </div>`;
             }).join('')}
         </div>`;
       }).join('');
 
-      content = statBlock + handCards;
+      content = rankBar + chartBlock + achBlock + statBlock + handCards;
     }
   }
 
@@ -601,13 +807,20 @@ function renderAiModal(){
   const ai=S.aiDetail;const p=PERSONAS[ai.id]||{};const log=ai.decisionLog||[];
   const STREET_CN={pre:'翻前',flop:'翻牌',turn:'转牌',river:'河牌'};
   const actionColor=a=>a.startsWith('raise')?'#FFD700':a==='fold'?'#FF5544':a==='check'?'#7a9a84':'#44CC77';
+  const tilted=PERSONAS[ai.id]?.tiltable&&ai.chips<800;
   modal.style.display='flex';
   modal.innerHTML=`
   <div onclick="closeAiDetail()" style="position:absolute;inset:0"></div>
-  <div style="width:100%;max-width:430px;background:#080f09;border-top:2px solid ${ai.color}44;border-radius:18px 18px 0 0;padding:18px 16px 28px;max-height:80vh;overflow-y:auto;position:relative;z-index:1">
+  <div style="width:100%;max-width:430px;background:#080f09;border-top:2px solid ${tilted?'#FF5533':ai.color}44;border-radius:18px 18px 0 0;padding:18px 16px 28px;max-height:80vh;overflow-y:auto;position:relative;z-index:1">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
       <span style="font-size:26px">${ai.emoji}</span>
-      <div style="flex:1"><div style="color:${ai.color};font-weight:900;font-size:17px">${ai.name}</div><div style="color:#3a5a42;font-size:11px">◈ ${ai.chips.toLocaleString()} · ${ai.folded?'已弃牌':'在局中'}</div></div>
+      <div style="flex:1">
+        <div style="display:flex;align-items:center;gap:7px">
+          <div style="color:${ai.color};font-weight:900;font-size:17px">${ai.name}</div>
+          ${tilted?`<span style="background:rgba(255,80,50,.15);border:1px solid rgba(255,80,50,.4);border-radius:20px;padding:2px 8px;color:#FF6644;font-size:10px;font-weight:800">🌋 倾斜模式</span>`:''}
+        </div>
+        <div style="color:#3a5a42;font-size:11px">◈ ${fmtChips(ai.chips)} · ${ai.folded?'已弃牌':'在局中'}</div>
+      </div>
       <button onclick="closeAiDetail()" style="background:none;border:none;color:#3a5a42;font-size:22px;cursor:pointer;padding:0 4px">✕</button>
     </div>
     <div style="background:rgba(255,255,255,.025);border-radius:12px;padding:10px 12px;margin-bottom:12px;display:grid;grid-template-columns:1fr 1fr;gap:7px 14px">
@@ -644,7 +857,7 @@ function rebuildAfterRaise(raiserSeat,ais,pFolded){
 
 async function runOrbit(){
   const orbit=S.orbit;
-  const myGen=S_GEN; // capture generation at start
+  const myGen=S_GEN;
   while(orbit.toAct.length>0){
     const pFolded=orbit.pFolded;const curAis=S.ais;
     const activeTotal=(pFolded?0:1)+curAis.filter(a=>!a.folded).length;
@@ -660,9 +873,9 @@ async function runOrbit(){
     S.ais[seat]={...ai,thinking:true};renderAiRow();
     const base={gpt4:280,gemini:750,llama:180,claude:580,grok:220}[ai.id]||400;
     await new Promise(r=>setTimeout(r,base+Math.random()*500));
-    if(S_GEN!==myGen){S.ais[seat]={...S.ais[seat],thinking:false};return;} // stale orbit - abort
+    if(S_GEN!==myGen){S.ais[seat]={...S.ais[seat],thinking:false};return;}
     let dec;try{dec=makeAiDecision(ai,S.comm,S.pot,orbit.curBet)}catch(e){dec={action:'call',amount:0,comment:'...',_why:'error'}}
-    let up={...S.ais[seat],thinking:false}; // use fresh S.ais[seat] state
+    let up={...S.ais[seat],thinking:false};
     const streetName=S.comm.length===0?'pre':S.comm.length===3?'flop':S.comm.length===4?'turn':'river';
     const addLog=(action,why)=>[...(ai.decisionLog||[]),{street:streetName,action,why:why||''}].slice(-8);
 
@@ -696,11 +909,11 @@ function advanceStreet(){
   orbit.playerStreetBet=0;orbit.curBet=0;
   const cur=S.comm;
   if(cur.length===0){
-    const flop=S.deck.splice(0,3);S.comm=[...flop];S.phase='flop';S.animatedComm=new Set();
+    const flop=S.deck.splice(0,3);S.comm=[...flop];S.phase='flop';S.animatedComm=new Set();snd('deal');
   } else if(cur.length===3){
-    S.animatedComm=new Set([0,1,2]);S.comm=[...cur,S.deck.shift()];S.phase='turn';
+    S.animatedComm=new Set([0,1,2]);S.comm=[...cur,S.deck.shift()];S.phase='turn';snd('deal');
   } else if(cur.length===4){
-    S.animatedComm=new Set([0,1,2,3]);S.comm=[...cur,S.deck.shift()];S.phase='river';
+    S.animatedComm=new Set([0,1,2,3]);S.comm=[...cur,S.deck.shift()];S.phase='river';snd('deal');
   } else {doShowdown();return}
   orbit.toAct=buildActionOrder(S.dealerPos,false,S.ais,pFolded);
   updateAnalysis();renderAll();
@@ -711,12 +924,12 @@ function advanceStreet(){
 // START HAND
 // ═══════════════════════════════════════
 function startHand(){
-  S_GEN++; // cancel any in-flight runOrbit from previous hand
+  S_GEN++;
   const newDealer=(S.dealerPos+1)%6;S.dealerPos=newDealer;
   const sbSeat=(newDealer+1)%6,bbSeat=(newDealer+2)%6;
   const deck=shuffle(fullDeck());let idx=0;
   const pCards=[deck[idx++],deck[idx++]];
-  const chipMap=Object.fromEntries(S.ais.map(a=>[a.id,a.chips<=0?1500:a.chips])); // respawn bankrupt AIs
+  const chipMap=Object.fromEntries(S.ais.map(a=>[a.id,a.chips<=0?1500:a.chips]));
   S.ais=AI_CONFIGS.map((cfg,i)=>{
     const isSB=i===sbSeat,isBB=i===bbSeat;
     const prev=chipMap[cfg.id]??cfg.chips;
@@ -727,7 +940,12 @@ function startHand(){
   if(PLAYER_SEAT===newDealer)playerPos='D';else if(PLAYER_SEAT===sbSeat)playerPos='SB';else if(PLAYER_SEAT===bbSeat)playerPos='BB';
   const playerIsSB=PLAYER_SEAT===sbSeat,playerIsBB=PLAYER_SEAT===bbSeat;
   const playerBlind=playerIsSB?SB:playerIsBB?BB:0;
-  if(S.playerChips<=0)S.playerChips=1500; // respawn bankrupt player
+  if(S.playerChips<=0)S.playerChips=1500;
+  // Record chips before hand
+  S.playerChipsAtHandStart=S.playerChips;
+  S.playerWasAllin=false;
+  // Survivor achievement check at start
+  if(S.playerChips<100)unlockAch('survivor');
   S.deck=deck.slice(idx);S.handNum++;S.playerCards=pCards;S.comm=[];
   S.playerFolded=false;S.result=null;S.waiting=false;
   S.equity=null;S.outs=null;S.nuts=null;S.betAdvice=null;
@@ -735,23 +953,16 @@ function startHand(){
   S.pot=SB+BB;S.playerBet=playerBlind;S.curBet=BB;
   S.playerChips=Math.max(0,S.playerChips-playerBlind);S.phase='preflop';
   S.orbit={toAct:buildActionOrder(newDealer,true,S.ais,false),curBet:BB,playerStreetBet:playerBlind,pFolded:false};
-  updateAnalysis();renderAll();
+  snd('deal');updateAnalysis();renderAll();
   runOrbit();
 }
 
-
-function logPlayerAction(action, amount=0){
+function logPlayerAction(action,amount=0){
   const street=S.comm.length===0?'pre':S.comm.length===3?'flop':S.comm.length===4?'turn':'river';
   const hand=S.playerCards.length>0?evalHand([...S.playerCards,...S.comm]):null;
   const toCall=Math.max(0,S.orbit.curBet-S.orbit.playerStreetBet);
   const potOdds=toCall>0?Math.round(toCall/(S.pot+toCall)*100):0;
-  S.playerLog.push({
-    street, action, amount,
-    handName:hand?hand.n:'?', handT:hand?hand.t:-1,
-    equity:S.equity, potOdds, pot:S.pot,
-    pos:S.currentPlayerPos||'?',
-    chipsBefore:S.playerChips+(action==='fold'?0:amount)
-  });
+  S.playerLog.push({street,action,amount,handName:hand?hand.n:'?',handT:hand?hand.t:-1,equity:S.equity,potOdds,pot:S.pot,pos:S.currentPlayerPos||'?',chipsBefore:S.playerChips+(action==='fold'?0:amount)});
 }
 
 // ═══════════════════════════════════════
@@ -775,6 +986,7 @@ async function onCall(){
   S.waiting=false;
   const orbit=S.orbit;const tc=Math.min(Math.max(0,orbit.curBet-orbit.playerStreetBet),S.playerChips);
   orbit.playerStreetBet+=tc;S.playerBet=orbit.playerStreetBet;S.playerChips-=tc;S.pot+=tc;
+  if(S.playerChips<=0)S.playerWasAllin=true;
   orbit.toAct=orbit.toAct.filter(s=>s!==PLAYER_SEAT);
   renderAll();await runOrbit();
 }
@@ -785,14 +997,37 @@ async function onRaise(){
   logPlayerAction('raise',total);
   S.waiting=false;
   const extra=total-orbit.playerStreetBet;S.playerChips-=extra;
+  if(S.playerChips<=0)S.playerWasAllin=true;
   orbit.playerStreetBet=total;S.playerBet=total;orbit.curBet=total;S.curBet=total;S.pot+=extra;
   orbit.toAct=rebuildAfterRaise(PLAYER_SEAT,S.ais,orbit.pFolded);
   renderAll();await runOrbit();
 }
 
 // ═══════════════════════════════════════
-// SHOWDOWN
+// SHOWDOWN & ACHIEVEMENT CHECKS
 // ═══════════════════════════════════════
+function checkAchievements(playerWon,fp,pFolded,allActive,finalHand){
+  if(!playerWon)return;
+  // first_win
+  if(S.stats.totalWins===1)unlockAch('first_win');
+  // royal flush
+  if(finalHand&&finalHand.r===9900)unlockAch('royal_flush');
+  // all_in_win
+  if(S.playerWasAllin)unlockAch('all_in_win');
+  // comeback
+  if(S.playerChipsAtHandStart<500)unlockAch('comeback');
+  // ten_wins
+  if(S.stats.totalWins>=10)unlockAch('ten_wins');
+  // bluff_win: everyone else folded
+  if(allActive.length===1&&!pFolded)unlockAch('bluff_win');
+  // big_pot
+  if(fp>=1000)unlockAch('big_pot');
+  // streak3
+  if(S.stats.winStreak>=3)unlockAch('streak3');
+  // streak5
+  if(S.stats.winStreak>=5)unlockAch('streak5');
+}
+
 function doShowdown(){
   const pFolded=S.orbit.pFolded;
   S.phase='showdown';S.waiting=false;
@@ -802,22 +1037,38 @@ function doShowdown(){
     ...(!pFolded?[{id:'player',name:'你',score:evalHand([...S.playerCards,...S.comm]),cards:S.playerCards}]:[]),
     ...S.ais.filter(a=>!a.folded).map(a=>({id:a.id,name:a.name,color:a.color,score:evalHand([...a.cards,...S.comm]),cards:a.cards}))
   ];
-  let winner=null;
+  let winner=null;let playerWon=false;
   if(active.length===0){S.pot=0}
   else if(active.length===1){
     const w=active[0];
-    if(w.id==='player'){S.playerChips+=fp;S.result={winner:'player',amount:fp,handName:'对手全部弃牌'}}
+    if(w.id==='player'){S.playerChips+=fp;S.result={winner:'player',amount:fp,handName:'对手全部弃牌'};playerWon=true;}
     else{S.ais=S.ais.map(a=>a.id===w.id?{...a,chips:a.chips+fp}:a);S.result={winner:w.name,color:w.color,amount:fp,handName:'对手弃牌'}}
     winner=w.id==='player'?'player':w.id;
   } else {
     active.sort((a,b)=>b.score.r-a.score.r);const w=active[0];
-    if(w.id==='player'){S.playerChips+=fp;S.result={winner:'player',amount:fp,handName:w.score.n}}
+    if(w.id==='player'){S.playerChips+=fp;S.result={winner:'player',amount:fp,handName:w.score.n};playerWon=true;}
     else{S.ais=S.ais.map(a=>a.id===w.id?{...a,chips:a.chips+fp}:a);S.result={winner:w.name,color:w.color,amount:fp,handName:w.score.n}}
     winner=w.id==='player'?'player':w.id;
   }
   S.pot=0;
-  // Record hand history
+
+  // Update stats
   const finalHand=S.playerCards.length>0&&S.comm.length>0?evalHand([...S.playerCards,...S.comm]):null;
+  if(playerWon){
+    S.stats.totalWins++;S.stats.winStreak++;S.stats.bestStreak=Math.max(S.stats.bestStreak,S.stats.winStreak);
+    S.stats.totalChipsWon+=fp;
+    snd('win');
+  } else {
+    S.stats.totalLosses++;S.stats.winStreak=0;
+    snd('lose');
+  }
+  // Track chip history
+  S.stats.chipHistory.push(S.playerChips);
+  if(S.stats.chipHistory.length>60)S.stats.chipHistory=S.stats.chipHistory.slice(-60);
+  // Check achievements
+  checkAchievements(playerWon,fp,pFolded,active,finalHand);
+  saveStats();
+
   S.handHistory=[{handNum:S.handNum,comm:[...S.comm],ais:S.ais.map(a=>({id:a.id,name:a.name,emoji:a.emoji,color:a.color,cards:a.cards,folded:a.folded,chips:a.chips,decisionLog:a.decisionLog||[]})),playerCards:[...S.playerCards],playerLog:[...S.playerLog],finalHand,winner,pot:fp},...S.handHistory].slice(0,20);
   renderAll();
 }
@@ -839,9 +1090,10 @@ function updateAnalysis(){
 }
 
 // ═══════════════════════════════════════
-// UI HELPERS (called from HTML)
+// UI HELPERS
 // ═══════════════════════════════════════
 function toggleCoach(){S.showCoach=!S.showCoach;renderTopBar();renderCoach()}
+function toggleSound(){S.soundOn=!S.soundOn;renderTopBar();if(S.soundOn)snd('click');}
 function setTab(t){S.tab=t;renderCoach()}
 function showAiDetail(i){S.aiDetail=S.ais[i];renderAiModal()}
 function closeAiDetail(){S.aiDetail=null;renderAiModal()}
@@ -854,6 +1106,27 @@ function adjRaise(dir){
   else S.raiseAmt=Math.min(Math.round((S.raiseAmt+BB)/5)*5,S.playerChips);
   renderActionBar();
 }
+
+// ═══════════════════════════════════════
+// NEW: KEYBOARD SHORTCUTS
+// ═══════════════════════════════════════
+document.addEventListener('keydown',e=>{
+  // Don't intercept when typing in input
+  if(e.target&&e.target.tagName==='INPUT')return;
+  // Lobby: start game
+  if(S.phase==='lobby'&&(e.code==='Space'||e.code==='Enter')){e.preventDefault();startHand();return;}
+  // Next hand
+  if((S.phase==='showdown'||S.result)&&(e.code==='Space'||e.code==='Enter')){e.preventDefault();startHand();return;}
+  // Action shortcuts
+  if(!S.waiting||S.playerFolded||S.phase==='showdown')return;
+  switch(e.code){
+    case'KeyF':case'Escape':snd('fold');onFold();break;
+    case'Space':case'Enter':e.preventDefault();snd('click');onCall();break;
+    case'KeyR':if(S.raiseAmt>S.orbit.curBet&&S.raiseAmt<=S.playerChips){snd('raise');onRaise();}break;
+    case'ArrowUp':case'Equal':e.preventDefault();adjRaise(1);break;
+    case'ArrowDown':case'Minus':e.preventDefault();adjRaise(-1);break;
+  }
+});
 
 // ═══════════════════════════════════════
 // INIT
