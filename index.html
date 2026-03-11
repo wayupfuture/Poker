@@ -282,15 +282,37 @@ function snd(type){
 }
 
 // ═══════════════════════════════════════
-// NEW: STATS PERSISTENCE
+// NEW: DUAL-ENV STORAGE (Claude artifact + GitHub Pages)
 // ═══════════════════════════════════════
-const _SK='pkr_v4';
-function loadStats(){
-  try{const s=JSON.parse(localStorage.getItem(_SK)||'null');if(s&&typeof s.totalWins==='number')return s;}catch(e){}
-  return{totalWins:0,totalLosses:0,winStreak:0,bestStreak:0,totalChipsWon:0,chipHistory:[3000],achievements:[]};
+const _SK='pkr_v5';
+const _defaultStats=()=>({totalWins:0,totalLosses:0,winStreak:0,bestStreak:0,totalChipsWon:0,chipHistory:[3000],achievements:[]});
+
+// Detect which storage backend is available
+const _useClaudeStorage=typeof window.storage==='object'&&typeof window.storage.get==='function';
+
+async function loadStats(){
+  // 1) Try Claude artifact storage (window.storage)
+  if(_useClaudeStorage){
+    try{
+      const r=await window.storage.get(_SK);
+      if(r&&r.value){const s=JSON.parse(r.value);if(s&&typeof s.totalWins==='number')return s;}
+    }catch(e){}
+  }
+  // 2) Fall back to localStorage (GitHub Pages / local file)
+  try{
+    const s=JSON.parse(localStorage.getItem(_SK)||'null');
+    if(s&&typeof s.totalWins==='number')return s;
+  }catch(e){}
+  return _defaultStats();
 }
-function saveStats(){
-  try{localStorage.setItem(_SK,JSON.stringify(S.stats));}catch(e){}
+
+async function saveStats(){
+  const str=JSON.stringify(S.stats);
+  // Write to both backends so data survives environment switches
+  if(_useClaudeStorage){
+    try{await window.storage.set(_SK,str);}catch(e){}
+  }
+  try{localStorage.setItem(_SK,str);}catch(e){}
 }
 
 // ═══════════════════════════════════════
@@ -369,7 +391,7 @@ const S={
   soundOn:true,
   playerWasAllin:false,
   playerChipsAtHandStart:3000,
-  stats:loadStats(),
+  stats:_defaultStats(), // populated async in init()
 };
 
 // ═══════════════════════════════════════
@@ -882,19 +904,23 @@ async function runOrbit(){
     if(dec.action==='fold'){
       up={...up,folded:true,lastAction:'fold',comment:dec.comment,decisionLog:addLog('fold',dec._why)};
     } else if(dec.action==='raise'&&dec.amount>orbit.curBet){
-      const rt=Math.min(+dec.amount,ai.chips+ai.bet);const ex=rt-ai.bet;
-      if(ex>0&&ex<=ai.chips){
+      // Clamp raise to AI's available chips
+      const maxTotal=ai.bet+ai.chips;
+      const rt=Math.min(Math.max(+dec.amount,orbit.curBet+1),maxTotal);
+      const ex=Math.min(rt-ai.bet,ai.chips); // extra chips to put in
+      if(ex>0&&rt>orbit.curBet){
         orbit.curBet=rt;S.pot+=ex;
-        up={...up,bet:rt,chips:ai.chips-ex,lastAction:'raise',comment:dec.comment,decisionLog:addLog(`raise ${rt}`,dec._why)};
+        up={...up,bet:ai.bet+ex,chips:Math.max(0,ai.chips-ex),lastAction:'raise',comment:dec.comment,decisionLog:addLog(`raise ${rt}`,dec._why)};
         S.ais[seat]=up;orbit.toAct=rebuildAfterRaise(seat,S.ais,orbit.pFolded);renderAiRow();renderTopBar();renderFelt();continue;
       } else {
+        // Fall through to call/all-in
         const tc=Math.min(Math.max(0,orbit.curBet-ai.bet),ai.chips);S.pot+=tc;
-        up={...up,bet:ai.bet+tc,chips:ai.chips-tc,lastAction:'call',comment:dec.comment,decisionLog:addLog('call',dec._why)};
+        up={...up,bet:ai.bet+tc,chips:Math.max(0,ai.chips-tc),lastAction:'call',comment:dec.comment,decisionLog:addLog(tc>=ai.chips?'all-in':'call',dec._why)};
       }
     } else {
       const tc=Math.min(Math.max(0,orbit.curBet-ai.bet),ai.chips);S.pot+=tc;
       const isCheck=tc===0;
-      up={...up,bet:ai.bet+tc,chips:ai.chips-tc,lastAction:'call',comment:isCheck?'':dec.comment,decisionLog:addLog(isCheck?'check':'call',dec._why)};
+      up={...up,bet:ai.bet+tc,chips:Math.max(0,ai.chips-tc),lastAction:'call',comment:isCheck?'':dec.comment,decisionLog:addLog(isCheck?'check':tc>=ai.chips?'all-in':'call',dec._why)};
     }
     S.ais[seat]=up;renderAiRow();renderTopBar();renderFelt();
   }
@@ -934,13 +960,15 @@ function startHand(){
     const isSB=i===sbSeat,isBB=i===bbSeat;
     const prev=chipMap[cfg.id]??cfg.chips;
     let pos=null;if(i===newDealer)pos='D';else if(isSB)pos='SB';else if(isBB)pos='BB';
-    return{...cfg,chips:prev-(isSB?SB:0)-(isBB?BB:0),bet:isSB?SB:isBB?BB:0,cards:[deck[idx++],deck[idx++]],folded:false,thinking:false,lastAction:(isSB||isBB)?'blind':null,comment:isSB?`小盲 ${SB}`:isBB?`大盲 ${BB}`:'',showCards:false,pos,decisionLog:[]};
+    // Blind amount clamped to actual chips (prevents negative)
+    const blindAmt=isSB?Math.min(SB,prev):isBB?Math.min(BB,prev):0;
+    return{...cfg,chips:prev-blindAmt,bet:blindAmt,cards:[deck[idx++],deck[idx++]],folded:false,thinking:false,lastAction:(isSB||isBB)?'blind':null,comment:isSB?`小盲 ${blindAmt}`:isBB?`大盲 ${blindAmt}`:'',showCards:false,pos,decisionLog:[]};
   });
   let playerPos=null;
   if(PLAYER_SEAT===newDealer)playerPos='D';else if(PLAYER_SEAT===sbSeat)playerPos='SB';else if(PLAYER_SEAT===bbSeat)playerPos='BB';
   const playerIsSB=PLAYER_SEAT===sbSeat,playerIsBB=PLAYER_SEAT===bbSeat;
-  const playerBlind=playerIsSB?SB:playerIsBB?BB:0;
   if(S.playerChips<=0)S.playerChips=1500;
+  const playerBlind=playerIsSB?Math.min(SB,S.playerChips):playerIsBB?Math.min(BB,S.playerChips):0;
   // Record chips before hand
   S.playerChipsAtHandStart=S.playerChips;
   S.playerWasAllin=false;
@@ -950,9 +978,15 @@ function startHand(){
   S.playerFolded=false;S.result=null;S.waiting=false;
   S.equity=null;S.outs=null;S.nuts=null;S.betAdvice=null;
   S.tab='analysis';S.currentPlayerPos=playerPos;S.raiseBtnLabel=null;S.aiDetail=null;S.animatedComm=new Set();S.playerCardsDealt=false;S.playerLog=[];
-  S.pot=SB+BB;S.playerBet=playerBlind;S.curBet=BB;
-  S.playerChips=Math.max(0,S.playerChips-playerBlind);S.phase='preflop';
-  S.orbit={toAct:buildActionOrder(newDealer,true,S.ais,false),curBet:BB,playerStreetBet:playerBlind,pFolded:false};
+  // Recalculate actual pot from real blind contributions
+  const sbAmt=S.ais[sbSeat]?.bet??0;
+  const bbAmt=S.ais[bbSeat]?.bet??0;
+  S.pot=(playerIsSB?playerBlind:sbAmt)+(playerIsBB?playerBlind:bbAmt)+(playerIsSB||playerIsBB?0:0);
+  // Actually sum all blind bets
+  S.pot=S.ais.reduce((sum,a)=>sum+a.bet,0)+playerBlind;
+  S.playerBet=playerBlind;S.curBet=Math.max(BB,S.ais[bbSeat]?.bet??BB);
+  S.playerChips=S.playerChips-playerBlind;S.phase='preflop';
+  S.orbit={toAct:buildActionOrder(newDealer,true,S.ais,false),curBet:S.curBet,playerStreetBet:playerBlind,pFolded:false};
   snd('deal');updateAnalysis();renderAll();
   runOrbit();
 }
@@ -1033,43 +1067,90 @@ function doShowdown(){
   S.phase='showdown';S.waiting=false;
   S.ais=S.ais.map(a=>({...a,showCards:!a.folded}));
   const fp=S.pot;
+
+  // Build active contestant list with their total contributions (for side pot calc)
   const active=[
-    ...(!pFolded?[{id:'player',name:'你',score:evalHand([...S.playerCards,...S.comm]),cards:S.playerCards}]:[]),
-    ...S.ais.filter(a=>!a.folded).map(a=>({id:a.id,name:a.name,color:a.color,score:evalHand([...a.cards,...S.comm]),cards:a.cards}))
+    ...(!pFolded?[{id:'player',name:'你',score:evalHand([...S.playerCards,...S.comm]),
+      cards:S.playerCards,totalIn:S.playerBet+S.playerChipsAtHandStart-S.playerChips}]:[]),
+    ...S.ais.filter(a=>!a.folded).map(a=>({id:a.id,name:a.name,color:a.color,
+      score:evalHand([...a.cards,...S.comm]),cards:a.cards,
+      totalIn:a.bet+(a.chips<=0?0:0)})) // bet reflects what they put in this street; simplified
   ];
-  let winner=null;let playerWon=false;
-  if(active.length===0){S.pot=0}
+
+  let winner=null;let playerWon=false;let playerWinAmt=0;
+
+  if(active.length===0){S.pot=0;}
   else if(active.length===1){
+    // Everyone else folded
     const w=active[0];
-    if(w.id==='player'){S.playerChips+=fp;S.result={winner:'player',amount:fp,handName:'对手全部弃牌'};playerWon=true;}
-    else{S.ais=S.ais.map(a=>a.id===w.id?{...a,chips:a.chips+fp}:a);S.result={winner:w.name,color:w.color,amount:fp,handName:'对手弃牌'}}
+    if(w.id==='player'){S.playerChips+=fp;playerWon=true;playerWinAmt=fp;
+      S.result={winner:'player',amount:fp,handName:'对手全部弃牌'};}
+    else{S.ais=S.ais.map(a=>a.id===w.id?{...a,chips:Math.max(0,a.chips)+fp}:a);
+      S.result={winner:w.name,color:w.color,amount:fp,handName:'对手弃牌'};}
     winner=w.id==='player'?'player':w.id;
   } else {
-    active.sort((a,b)=>b.score.r-a.score.r);const w=active[0];
-    if(w.id==='player'){S.playerChips+=fp;S.result={winner:'player',amount:fp,handName:w.score.n};playerWon=true;}
-    else{S.ais=S.ais.map(a=>a.id===w.id?{...a,chips:a.chips+fp}:a);S.result={winner:w.name,color:w.color,amount:fp,handName:w.score.n}}
-    winner=w.id==='player'?'player':w.id;
+    // Sort by hand rank descending
+    active.sort((a,b)=>b.score.r-a.score.r);
+    const topScore=active[0].score.r;
+    // Find all players tied for best hand
+    const winners=active.filter(w=>w.score.r===topScore);
+    const split=Math.floor(fp/winners.length);
+    const remainder=fp-split*winners.length;
+    let resultName=winners[0].score.n;
+    let resultWinner=winners[0];
+
+    if(winners.length===1){
+      // Clear winner
+      const w=winners[0];
+      if(w.id==='player'){S.playerChips+=fp;playerWon=true;playerWinAmt=fp;
+        S.result={winner:'player',amount:fp,handName:w.score.n};}
+      else{S.ais=S.ais.map(a=>a.id===w.id?{...a,chips:Math.max(0,a.chips)+fp}:a);
+        S.result={winner:w.name,color:w.color,amount:fp,handName:w.score.n};}
+      winner=w.id==='player'?'player':w.id;
+    } else {
+      // TIE – split pot equally
+      let pShare=0;
+      winners.forEach((w,idx)=>{
+        const share=split+(idx===0?remainder:0); // remainder goes to first
+        if(w.id==='player'){S.playerChips+=share;playerWon=true;playerWinAmt=share;pShare=share;}
+        else{S.ais=S.ais.map(a=>a.id===w.id?{...a,chips:Math.max(0,a.chips)+share}:a);}
+      });
+      const names=winners.map(w=>w.id==='player'?'你':w.name).join(' & ');
+      if(playerWon){
+        S.result={winner:'player',amount:pShare,
+          handName:`平分底池 ${names} · ${resultName}`};
+      } else {
+        const nw=winners[0];
+        S.result={winner:nw.name,color:nw.color,amount:split,
+          handName:`平分底池 ${names} · ${resultName}`};
+      }
+      winner=playerWon?'player':winners[0].id;
+    }
   }
   S.pot=0;
+  const fp2=playerWinAmt||0; // for stats tracking
 
   // Update stats
   const finalHand=S.playerCards.length>0&&S.comm.length>0?evalHand([...S.playerCards,...S.comm]):null;
   if(playerWon){
     S.stats.totalWins++;S.stats.winStreak++;S.stats.bestStreak=Math.max(S.stats.bestStreak,S.stats.winStreak);
-    S.stats.totalChipsWon+=fp;
+    S.stats.totalChipsWon+=fp2;
     snd('win');
   } else {
     S.stats.totalLosses++;S.stats.winStreak=0;
     snd('lose');
   }
-  // Track chip history
+  // Track chip history + persist current chips
   S.stats.chipHistory.push(S.playerChips);
   if(S.stats.chipHistory.length>60)S.stats.chipHistory=S.stats.chipHistory.slice(-60);
+  S.stats.lastChips=S.playerChips; // persist for next session
   // Check achievements
   checkAchievements(playerWon,fp,pFolded,active,finalHand);
-  saveStats();
+  saveStats(); // async but fire-and-forget is fine here
 
   S.handHistory=[{handNum:S.handNum,comm:[...S.comm],ais:S.ais.map(a=>({id:a.id,name:a.name,emoji:a.emoji,color:a.color,cards:a.cards,folded:a.folded,chips:a.chips,decisionLog:a.decisionLog||[]})),playerCards:[...S.playerCards],playerLog:[...S.playerLog],finalHand,winner,pot:fp},...S.handHistory].slice(0,20);
+  // Ensure no AI has negative chips after showdown
+  S.ais=S.ais.map(a=>({...a,chips:Math.max(0,a.chips)}));
   renderAll();
 }
 
@@ -1129,9 +1210,33 @@ document.addEventListener('keydown',e=>{
 });
 
 // ═══════════════════════════════════════
-// INIT
+// INIT (async to load saved stats first)
 // ═══════════════════════════════════════
-renderAll();
+async function init(){
+  // Show a loading state while we fetch saved data
+  document.getElementById('lobby-msg').innerHTML=`
+    <div style="font-size:28px;margin-bottom:8px">🃏</div>
+    <div style="color:#2A4030;font-size:12px;margin-bottom:6px">读取存档中…</div>
+    <div style="display:flex;gap:4px;justify-content:center">
+      ${[0,1,2].map(k=>`<div style="width:5px;height:5px;border-radius:50%;background:#2A4030;animation:blink .8s ${k*.22}s infinite"></div>`).join('')}
+    </div>`;
+
+  // Load stats from whichever storage is available
+  S.stats = await loadStats();
+
+  // Restore player chips from last session if available
+  if(S.stats.lastChips && S.stats.lastChips > 0){
+    S.playerChips = S.stats.lastChips;
+  }
+
+  // Reset lobby message
+  document.getElementById('lobby-msg').innerHTML=`
+    <div style="font-size:28px;margin-bottom:6px">🃏</div>
+    <div style="color:#2A4A34;font-size:12px">6人桌 · 与五大 AI 同台竞技</div>`;
+
+  renderAll();
+}
+init();
 </script>
 
 </body>
