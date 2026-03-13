@@ -522,25 +522,32 @@ function renderAiRow(){
   row.innerHTML=S.ais.map((ai,i)=>{
     const fold=ai.folded;
     const tilted=!fold&&PERSONAS[ai.id]?.tiltable&&ai.chips<800;
-    const w=fold?76:112;
+
+    // ── Folded: minimal vertical strip, emoji only ──
+    if(fold){
+      return`<div onclick="showAiDetail(${i})" style="flex:0 0 auto;width:26px;background:rgba(8,10,8,.4);border:1px solid #0e160e;border-radius:8px;padding:5px 2px;opacity:.22;transition:width .35s,opacity .35s;overflow:hidden;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px">
+        <span style="font-size:13px;line-height:1;filter:grayscale(1)">${ai.emoji}</span>
+        <div style="font-size:7px;color:#1e2a1e;font-weight:700">✕</div>
+      </div>`;
+    }
+
+    // ── Active: full card ──
     const thinking=ai.thinking?`<div style="display:flex;gap:3px;margin-top:5px">${[0,1,2].map(k=>`<div class="thinking-dot" style="background:${ai.color};animation:blink .8s ${k*.22}s infinite"></div>`).join('')}</div>`:'';
-    const actionBadge=(!fold&&ai.lastAction&&ai.lastAction!=='blind')?badge(ai.lastAction==='fold'?'弃牌':ai.lastAction==='raise'?`+${fmtChips(ai.bet)}`:'跟注',ai.lastAction==='fold'?'#FF5544':ai.lastAction==='raise'?'#FFD700':'#44CC77'):'';
-    const blindBadge=(!fold&&ai.lastAction==='blind')?badge(ai.comment||'盲注','#5577AA'):'';
-    const comment=(!fold&&ai.comment&&ai.lastAction!=='blind')?`<div style="font-size:10px;color:#5a7a64;font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px;margin-top:2px">"${ai.comment}"</div>`:'';
+    const actionBadge=(ai.lastAction&&ai.lastAction!=='blind')?badge(ai.lastAction==='raise'?`+${fmtChips(ai.bet)}`:'跟注',ai.lastAction==='raise'?'#FFD700':'#44CC77'):'';
+    const blindBadge=(ai.lastAction==='blind')?badge(ai.comment||'盲注','#5577AA'):'';
+    const comment=(ai.comment&&ai.lastAction!=='blind')?`<div style="font-size:10px;color:#5a7a64;font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px;margin-top:2px">"${ai.comment}"</div>`:'';
     const tiltBadge=tilted?`<div style="font-size:8px;color:#FF6644;font-weight:800;letter-spacing:.3px;margin-top:2px">🌋 倾斜</div>`:'';
-    const cards=fold?
-      `<div style="display:flex;gap:3px;margin-bottom:0">${(ai.cards||[]).map(()=>`<div style="width:22px;height:30px;border-radius:4px;background:#0e120e;border:1px solid #111;flex-shrink:0"></div>`).join('')}</div>`:
-      `<div style="display:flex;gap:3px;margin-bottom:6px">${(ai.cards||[]).map(c=>cardHTML(ai.showCards?c:null,!ai.showCards,'sm')).join('')}</div>`;
+    const cards=`<div style="display:flex;gap:3px;margin-bottom:6px">${(ai.cards||[]).map(c=>cardHTML(ai.showCards?c:null,!ai.showCards,'sm')).join('')}</div>`;
     const tiltClass=tilted?'tilt-pulse':'';
-    return`<div onclick="showAiDetail(${i})" class="${tiltClass}" style="flex:0 0 auto;width:${w}px;background:${fold?'rgba(8,10,8,.7)':'rgba(10,20,14,.95)'};border:1.5px solid ${fold?'#141814':tilted?'rgba(255,80,50,.6)':ai.color+'33'};border-radius:12px;padding:${fold?'7px 8px':'8px 10px'};opacity:${fold?.32:1};transition:width .4s,opacity .4s;box-shadow:${ai.thinking?`0 0 22px ${ai.color}44`:''};overflow:hidden;cursor:pointer">
-      <div style="display:flex;align-items:center;gap:5px;margin-bottom:${fold?4:6}px">
-        <span style="font-size:${fold?14:18}px;line-height:1">${ai.emoji}</span>
+    return`<div onclick="showAiDetail(${i})" class="${tiltClass}" style="flex:0 0 auto;width:112px;background:rgba(10,20,14,.95);border:1.5px solid ${tilted?'rgba(255,80,50,.6)':ai.color+'33'};border-radius:12px;padding:8px 10px;transition:width .35s,opacity .35s;box-shadow:${ai.thinking?`0 0 22px ${ai.color}44`:''};overflow:hidden;cursor:pointer">
+      <div style="display:flex;align-items:center;gap:5px;margin-bottom:6px">
+        <span style="font-size:18px;line-height:1">${ai.emoji}</span>
         <div style="min-width:0">
           <div style="display:flex;align-items:center">
-            <div style="color:${tilted?'#FF8866':ai.color};font-size:${fold?10:12}px;font-weight:800;line-height:1.2;white-space:nowrap">${fold?ai.name.slice(0,6):ai.name}</div>
-            ${!fold?posToken(ai.pos):''}
+            <div style="color:${tilted?'#FF8866':ai.color};font-size:12px;font-weight:800;line-height:1.2;white-space:nowrap">${ai.name}</div>
+            ${posToken(ai.pos)}
           </div>
-          ${!fold?`<div style="color:#3a5a42;font-size:10px;font-weight:600">◈ ${fmtChips(ai.chips)}</div>`:`<div style="color:#1e2e1e;font-size:9px">弃牌</div>`}
+          <div style="color:#3a5a42;font-size:10px;font-weight:600">◈ ${fmtChips(ai.chips)}</div>
         </div>
       </div>
       ${cards}${actionBadge}${blindBadge}${comment}${tiltBadge}${thinking}
