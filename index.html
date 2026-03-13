@@ -135,16 +135,45 @@ function score5(cards){
   const uv=[...new Set(vals)].sort((a,b)=>b-a);
   const str=uv.length===5&&uv[0]-uv[4]===4;
   const wheel=JSON.stringify(uv)==='[14,5,4,3,2]';
-  if(flush&&str&&vals[0]===14)return{r:9900,n:'同花大顺',t:9};
-  if(flush&&(str||wheel))return{r:8000+(wheel?5:vals[0]),n:'同花顺',t:8};
-  if(counts[0]===4){const q=+Object.keys(vc).find(k=>vc[k]===4);return{r:7000+q,n:'四条',t:7}}
-  if(counts[0]===3&&counts[1]===2){const q=+Object.keys(vc).find(k=>vc[k]===3);return{r:6000+q,n:'葫芦',t:6}}
-  if(flush)return{r:5000+vals[0],n:'同花',t:5};
-  if(str||wheel)return{r:4000+(wheel?5:vals[0]),n:'顺子',t:4};
-  if(counts[0]===3){const q=+Object.keys(vc).find(k=>vc[k]===3);return{r:3000+q,n:'三条',t:3}}
-  if(counts[0]===2&&counts[1]===2){const ps=Object.keys(vc).filter(k=>vc[k]===2).map(Number).sort((a,b)=>b-a);return{r:2000+ps[0]*15+ps[1],n:'两对',t:2}}
-  if(counts[0]===2){const p=+Object.keys(vc).find(k=>vc[k]===2);return{r:1000+p,n:'一对',t:1}}
-  return{r:vals[0],n:'高牌',t:0};
+
+  // Encode an ordered array of values into a single comparable number (base-15)
+  // This makes kicker comparison automatic and correct
+  const enc=arr=>arr.reduce((s,v,i)=>s+v*Math.pow(15,arr.length-1-i),0);
+
+  // Group vals by count for ordered extraction
+  const byCount=(n)=>Object.keys(vc).filter(k=>vc[k]===n).map(Number).sort((a,b)=>b-a);
+
+  if(flush&&str&&vals[0]===14)return{r:9e9,n:'同花大顺',t:9};
+  if(flush&&(str||wheel)){
+    const top=wheel?5:vals[0];
+    return{r:8e8+top,n:'同花顺',t:8};
+  }
+  if(counts[0]===4){
+    const q=byCount(4)[0],k=byCount(1)[0];
+    return{r:7e8+enc([q,k]),n:'四条',t:7};
+  }
+  if(counts[0]===3&&counts[1]===2){
+    const q=byCount(3)[0],p=byCount(2)[0];
+    return{r:6e8+enc([q,p]),n:'葫芦',t:6};
+  }
+  if(flush)return{r:5e8+enc(vals),n:'同花',t:5};
+  if(str||wheel){
+    const top=wheel?5:vals[0];
+    return{r:4e8+top,n:'顺子',t:4};
+  }
+  if(counts[0]===3){
+    const q=byCount(3)[0];const ks=byCount(1);
+    return{r:3e8+enc([q,...ks]),n:'三条',t:3};
+  }
+  if(counts[0]===2&&counts[1]===2){
+    const ps=byCount(2);const k=byCount(1)[0];
+    return{r:2e8+enc([ps[0],ps[1],k]),n:'两对',t:2};
+  }
+  if(counts[0]===2){
+    const p=byCount(2)[0];const ks=byCount(1);
+    return{r:1e8+enc([p,...ks]),n:'一对',t:1};
+  }
+  return{r:enc(vals),n:'高牌',t:0};
 }
 function evalHand(cards){
   if(cards.length<2)return{r:0,n:'无牌',t:-1};
@@ -532,7 +561,7 @@ function renderActionBar(){
   const ab=document.getElementById('action-bar');
   const canCheck=S.orbit.curBet===0||S.orbit.curBet===S.orbit.playerStreetBet;
   const toCall=Math.min(Math.max(0,S.orbit.curBet-S.orbit.playerStreetBet),S.playerChips);
-  const minRaise=Math.max(S.orbit.curBet*2,BB*2);
+  const minRaise=Math.min(S.playerChips,Math.max(S.orbit.curBet+(S.orbit.lastRaiseSize||BB),BB*2));
 
   if(S.waiting&&!S.playerFolded&&S.phase!=='showdown'){
     const pot=S.pot;
@@ -887,7 +916,7 @@ async function runOrbit(){
     const seat=orbit.toAct[0];
     if(seat===PLAYER_SEAT){
       S.curBet=orbit.curBet;S.playerBet=orbit.playerStreetBet;
-      S.raiseAmt=Math.min(Math.max(orbit.curBet*2,BB*3),S.playerChips);
+      const _minR=Math.min(S.playerChips,orbit.curBet+(orbit.lastRaiseSize||BB));S.raiseAmt=Math.min(Math.max(_minR,BB*2),S.playerChips);
       S.waiting=true;renderAll();return;
     }
     orbit.toAct.shift();
@@ -909,18 +938,19 @@ async function runOrbit(){
       const rt=Math.min(Math.max(+dec.amount,orbit.curBet+1),maxTotal);
       const ex=Math.min(rt-ai.bet,ai.chips); // extra chips to put in
       if(ex>0&&rt>orbit.curBet){
+        orbit.lastRaiseSize=Math.max(rt-orbit.curBet,orbit.lastRaiseSize);
         orbit.curBet=rt;S.pot+=ex;
-        up={...up,bet:ai.bet+ex,chips:Math.max(0,ai.chips-ex),lastAction:'raise',comment:dec.comment,decisionLog:addLog(`raise ${rt}`,dec._why)};
+        up={...up,bet:ai.bet+ex,totalIn:(ai.totalIn||0)+ex,chips:Math.max(0,ai.chips-ex),lastAction:'raise',comment:dec.comment,decisionLog:addLog(`raise ${rt}`,dec._why)};
         S.ais[seat]=up;orbit.toAct=rebuildAfterRaise(seat,S.ais,orbit.pFolded);renderAiRow();renderTopBar();renderFelt();continue;
       } else {
         // Fall through to call/all-in
         const tc=Math.min(Math.max(0,orbit.curBet-ai.bet),ai.chips);S.pot+=tc;
-        up={...up,bet:ai.bet+tc,chips:Math.max(0,ai.chips-tc),lastAction:'call',comment:dec.comment,decisionLog:addLog(tc>=ai.chips?'all-in':'call',dec._why)};
+        up={...up,bet:ai.bet+tc,totalIn:(ai.totalIn||0)+tc,chips:Math.max(0,ai.chips-tc),lastAction:'call',comment:dec.comment,decisionLog:addLog(tc>=ai.chips?'all-in':'call',dec._why)};
       }
     } else {
       const tc=Math.min(Math.max(0,orbit.curBet-ai.bet),ai.chips);S.pot+=tc;
       const isCheck=tc===0;
-      up={...up,bet:ai.bet+tc,chips:Math.max(0,ai.chips-tc),lastAction:'call',comment:isCheck?'':dec.comment,decisionLog:addLog(isCheck?'check':tc>=ai.chips?'all-in':'call',dec._why)};
+      up={...up,bet:ai.bet+tc,totalIn:(ai.totalIn||0)+tc,chips:Math.max(0,ai.chips-tc),lastAction:'call',comment:isCheck?'':dec.comment,decisionLog:addLog(isCheck?'check':tc>=ai.chips?'all-in':'call',dec._why)};
     }
     S.ais[seat]=up;renderAiRow();renderTopBar();renderFelt();
   }
@@ -932,7 +962,7 @@ function advanceStreet(){
   const activeTotal=(pFolded?0:1)+S.ais.filter(a=>!a.folded).length;
   if(activeTotal<=1){doShowdown();return}
   S.ais=S.ais.map(a=>({...a,bet:0}));S.playerBet=0;S.curBet=0;
-  orbit.playerStreetBet=0;orbit.curBet=0;
+  orbit.playerStreetBet=0;orbit.curBet=0;orbit.lastRaiseSize=BB;
   const cur=S.comm;
   if(cur.length===0){
     const flop=S.deck.splice(0,3);S.comm=[...flop];S.phase='flop';S.animatedComm=new Set();snd('deal');
@@ -962,7 +992,7 @@ function startHand(){
     let pos=null;if(i===newDealer)pos='D';else if(isSB)pos='SB';else if(isBB)pos='BB';
     // Blind amount clamped to actual chips (prevents negative)
     const blindAmt=isSB?Math.min(SB,prev):isBB?Math.min(BB,prev):0;
-    return{...cfg,chips:prev-blindAmt,bet:blindAmt,cards:[deck[idx++],deck[idx++]],folded:false,thinking:false,lastAction:(isSB||isBB)?'blind':null,comment:isSB?`小盲 ${blindAmt}`:isBB?`大盲 ${blindAmt}`:'',showCards:false,pos,decisionLog:[]};
+    return{...cfg,chips:prev-blindAmt,bet:blindAmt,totalIn:blindAmt,cards:[deck[idx++],deck[idx++]],folded:false,thinking:false,lastAction:(isSB||isBB)?'blind':null,comment:isSB?`小盲 ${blindAmt}`:isBB?`大盲 ${blindAmt}`:'',showCards:false,pos,decisionLog:[]};
   });
   let playerPos=null;
   if(PLAYER_SEAT===newDealer)playerPos='D';else if(PLAYER_SEAT===sbSeat)playerPos='SB';else if(PLAYER_SEAT===bbSeat)playerPos='BB';
@@ -984,9 +1014,9 @@ function startHand(){
   S.pot=(playerIsSB?playerBlind:sbAmt)+(playerIsBB?playerBlind:bbAmt)+(playerIsSB||playerIsBB?0:0);
   // Actually sum all blind bets
   S.pot=S.ais.reduce((sum,a)=>sum+a.bet,0)+playerBlind;
-  S.playerBet=playerBlind;S.curBet=Math.max(BB,S.ais[bbSeat]?.bet??BB);
+  S.playerBet=playerBlind;S.playerTotalIn=playerBlind;S.curBet=Math.max(BB,S.ais[bbSeat]?.bet??BB);
   S.playerChips=S.playerChips-playerBlind;S.phase='preflop';
-  S.orbit={toAct:buildActionOrder(newDealer,true,S.ais,false),curBet:S.curBet,playerStreetBet:playerBlind,pFolded:false};
+  S.orbit={toAct:buildActionOrder(newDealer,true,S.ais,false),curBet:S.curBet,playerStreetBet:playerBlind,pFolded:false,lastRaiseSize:BB};
   snd('deal');updateAnalysis();renderAll();
   runOrbit();
 }
@@ -1020,6 +1050,7 @@ async function onCall(){
   S.waiting=false;
   const orbit=S.orbit;const tc=Math.min(Math.max(0,orbit.curBet-orbit.playerStreetBet),S.playerChips);
   orbit.playerStreetBet+=tc;S.playerBet=orbit.playerStreetBet;S.playerChips-=tc;S.pot+=tc;
+  S.playerTotalIn=(S.playerTotalIn||0)+tc;
   if(S.playerChips<=0)S.playerWasAllin=true;
   orbit.toAct=orbit.toAct.filter(s=>s!==PLAYER_SEAT);
   renderAll();await runOrbit();
@@ -1031,7 +1062,9 @@ async function onRaise(){
   logPlayerAction('raise',total);
   S.waiting=false;
   const extra=total-orbit.playerStreetBet;S.playerChips-=extra;
+  S.playerTotalIn=(S.playerTotalIn||0)+extra;
   if(S.playerChips<=0)S.playerWasAllin=true;
+  orbit.lastRaiseSize=Math.max(total-orbit.curBet,orbit.lastRaiseSize);
   orbit.playerStreetBet=total;S.playerBet=total;orbit.curBet=total;S.curBet=total;S.pot+=extra;
   orbit.toAct=rebuildAfterRaise(PLAYER_SEAT,S.ais,orbit.pFolded);
   renderAll();await runOrbit();
@@ -1068,64 +1101,99 @@ function doShowdown(){
   S.ais=S.ais.map(a=>({...a,showCards:!a.folded}));
   const fp=S.pot;
 
-  // Build active contestant list with their total contributions (for side pot calc)
-  const active=[
-    ...(!pFolded?[{id:'player',name:'你',score:evalHand([...S.playerCards,...S.comm]),
-      cards:S.playerCards,totalIn:S.playerBet+S.playerChipsAtHandStart-S.playerChips}]:[]),
-    ...S.ais.filter(a=>!a.folded).map(a=>({id:a.id,name:a.name,color:a.color,
-      score:evalHand([...a.cards,...S.comm]),cards:a.cards,
-      totalIn:a.bet+(a.chips<=0?0:0)})) // bet reflects what they put in this street; simplified
+  // ALL contestants (including folded - needed for side pot cap)
+  // totalIn = total chips contributed this hand
+  const allContestants=[
+    {id:'player',name:'你',score:!pFolded?evalHand([...S.playerCards,...S.comm]):{r:-1},
+      cards:S.playerCards,totalIn:S.playerTotalIn||0,folded:pFolded},
+    ...S.ais.map(a=>({id:a.id,name:a.name,color:a.color,
+      score:!a.folded?evalHand([...a.cards,...S.comm]):{r:-1},
+      cards:a.cards,totalIn:a.totalIn||0,folded:a.folded}))
   ];
+  const active=allContestants.filter(p=>!p.folded);
 
   let winner=null;let playerWon=false;let playerWinAmt=0;
 
+  // ── Side-pot aware distribution ──────────────────────
+  // Sort all by totalIn ascending to process side pots from smallest
+  function distributePots(contestants, allPlayers){
+    let remaining=[...allPlayers].filter(p=>p.totalIn>0);
+    let resolved={}; // id -> chips won
+    contestants.forEach(p=>{resolved[p.id]=0});
+
+    while(remaining.some(p=>p.totalIn>0)){
+      // The smallest all-in cap among active contestants
+      const minIn=Math.min(...contestants.filter(p=>!p.folded&&p.totalIn>0).map(p=>p.totalIn).concat(
+        remaining.filter(p=>!contestants.find(c=>c.id===p.id)).map(p=>p.totalIn)
+      ));
+      if(!isFinite(minIn)||minIn<=0)break;
+
+      // Build this side pot
+      let potSize=0;
+      remaining.forEach(p=>{
+        const take=Math.min(p.totalIn,minIn);
+        potSize+=take;
+        p.totalIn-=take;
+      });
+      remaining=remaining.filter(p=>p.totalIn>0||contestants.find(c=>c.id===p.id));
+
+      // Who can win this pot (active players who contributed at least minIn original)
+      const eligible=contestants.filter(p=>!p.folded);
+      if(eligible.length===0){
+        // Everyone folded in this pot – return to last folder? Give to anyone with chips
+        // Simplified: give to AI with most chips
+        const fb=allPlayers.find(p=>p.totalIn>=0);
+        if(fb)resolved[fb.id]=(resolved[fb.id]||0)+potSize;
+      } else {
+        eligible.sort((a,b)=>b.score.r-a.score.r);
+        const best=eligible[0].score.r;
+        const pwinners=eligible.filter(e=>e.score.r===best);
+        const share=Math.floor(potSize/pwinners.length);
+        const rem=potSize-share*pwinners.length;
+        pwinners.forEach((w,i)=>{resolved[w.id]=(resolved[w.id]||0)+share+(i===0?rem:0)});
+      }
+    }
+    return resolved;
+  }
+
+  let resultName='',resultWinner=null;
   if(active.length===0){S.pot=0;}
   else if(active.length===1){
-    // Everyone else folded
     const w=active[0];
-    if(w.id==='player'){S.playerChips+=fp;playerWon=true;playerWinAmt=fp;
-      S.result={winner:'player',amount:fp,handName:'对手全部弃牌'};}
-    else{S.ais=S.ais.map(a=>a.id===w.id?{...a,chips:Math.max(0,a.chips)+fp}:a);
-      S.result={winner:w.name,color:w.color,amount:fp,handName:'对手弃牌'};}
+    const amt=fp;
+    resolved_dist={};allContestants.forEach(p=>{resolved_dist[p.id]=0});
+    resolved_dist[w.id]=amt;
+    if(w.id==='player'){S.playerChips+=amt;playerWon=true;playerWinAmt=amt;
+      S.result={winner:'player',amount:amt,handName:'对手全部弃牌'};}
+    else{S.ais=S.ais.map(a=>a.id===w.id?{...a,chips:Math.max(0,a.chips)+amt}:a);
+      S.result={winner:w.name,color:w.color,amount:amt,handName:'对手弃牌'};}
     winner=w.id==='player'?'player':w.id;
   } else {
-    // Sort by hand rank descending
+    const dist=distributePots(active,allContestants);
+    // Apply winnings
+    let pShare=0;
+    allContestants.forEach(p=>{
+      const gain=dist[p.id]||0;
+      if(gain<=0)return;
+      if(p.id==='player'){S.playerChips+=gain;playerWon=true;playerWinAmt+=gain;pShare+=gain;}
+      else{S.ais=S.ais.map(a=>a.id===p.id?{...a,chips:Math.max(0,a.chips)+gain}:a);}
+    });
+    // Determine result display: find highest scorer among active
     active.sort((a,b)=>b.score.r-a.score.r);
+    resultName=active[0].score.n;
     const topScore=active[0].score.r;
-    // Find all players tied for best hand
-    const winners=active.filter(w=>w.score.r===topScore);
-    const split=Math.floor(fp/winners.length);
-    const remainder=fp-split*winners.length;
-    let resultName=winners[0].score.n;
-    let resultWinner=winners[0];
-
-    if(winners.length===1){
-      // Clear winner
-      const w=winners[0];
-      if(w.id==='player'){S.playerChips+=fp;playerWon=true;playerWinAmt=fp;
-        S.result={winner:'player',amount:fp,handName:w.score.n};}
-      else{S.ais=S.ais.map(a=>a.id===w.id?{...a,chips:Math.max(0,a.chips)+fp}:a);
-        S.result={winner:w.name,color:w.color,amount:fp,handName:w.score.n};}
-      winner=w.id==='player'?'player':w.id;
-    } else {
-      // TIE – split pot equally
-      let pShare=0;
-      winners.forEach((w,idx)=>{
-        const share=split+(idx===0?remainder:0); // remainder goes to first
-        if(w.id==='player'){S.playerChips+=share;playerWon=true;playerWinAmt=share;pShare=share;}
-        else{S.ais=S.ais.map(a=>a.id===w.id?{...a,chips:Math.max(0,a.chips)+share}:a);}
-      });
-      const names=winners.map(w=>w.id==='player'?'你':w.name).join(' & ');
-      if(playerWon){
-        S.result={winner:'player',amount:pShare,
-          handName:`平分底池 ${names} · ${resultName}`};
-      } else {
-        const nw=winners[0];
-        S.result={winner:nw.name,color:nw.color,amount:split,
-          handName:`平分底池 ${names} · ${resultName}`};
-      }
-      winner=playerWon?'player':winners[0].id;
+    const topWinners=active.filter(a=>a.score.r===topScore);
+    if(topWinners.length>1){
+      const names=topWinners.map(w=>w.id==='player'?'你':w.name).join(' & ');
+      resultName=`平分底池 ${names} · ${resultName}`;
     }
+    resultWinner=topWinners[0];
+    if(playerWon){
+      S.result={winner:'player',amount:pShare,handName:resultName};
+    } else {
+      S.result={winner:resultWinner.name,color:resultWinner.color,amount:dist[resultWinner.id]||0,handName:resultName};
+    }
+    winner=playerWon?'player':resultWinner.id;
   }
   S.pot=0;
   const fp2=playerWinAmt||0; // for stats tracking
@@ -1182,7 +1250,7 @@ function setQuickRaise(label,val){S.raiseBtnLabel=label;S.raiseAmt=val;renderAct
 function setRaiseAmt(v){const n=parseInt(v,10);if(!isNaN(n)){S.raiseBtnLabel=null;S.raiseAmt=Math.min(Math.max(n,0),S.playerChips);renderActionBar()}}
 function adjRaise(dir){
   S.raiseBtnLabel=null;
-  const minRaise=Math.max(S.orbit.curBet*2,BB*2);
+  const minRaise=Math.min(S.playerChips,Math.max(S.orbit.curBet+(S.orbit.lastRaiseSize||BB),BB*2));
   if(dir<0)S.raiseAmt=Math.max(minRaise,Math.round((S.raiseAmt-BB)/5)*5);
   else S.raiseAmt=Math.min(Math.round((S.raiseAmt+BB)/5)*5,S.playerChips);
   renderActionBar();
