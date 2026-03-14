@@ -455,6 +455,7 @@ const S={
   soundOn:true,
   playerWasAllin:false,
   playerChipsAtHandStart:3000,
+  coachCache:{},
   stats:_defaultStats(), // populated async in init()
 };
 
@@ -662,6 +663,89 @@ function renderActionBar(){
   }
 }
 
+// ═══════════════════════════════════════
+// AI COACHING ENGINE
+// ═══════════════════════════════════════
+function getActionFeedback(a){
+  const msgs=[];
+  if(!a||a.equity==null)return msgs;
+  const ev=a.equity/100,po=(a.potOdds||0)/100,pot=a.pot||0;
+  if(a.action==='fold'){
+    if(a.equity>=60){const evLoss=Math.round(pot*ev);msgs.push({level:'warn',text:`胜率 ${a.equity}%，弃牌放弃正期望约 +${fmtChips(evLoss)} 筹码`});}
+    else if(a.equity>=45&&po>0&&ev>=po)msgs.push({level:'warn',text:`赔率 ${a.potOdds}% < 胜率 ${a.equity}%，赔率划算却弃牌`});
+  }else if(a.action==='call'){
+    if(a.equity<25&&po>0&&ev<po)msgs.push({level:'warn',text:`胜率 ${a.equity}% < 赔率 ${a.potOdds}%，跟注负期望`});
+    if(a.handT>=5&&a.equity>=65)msgs.push({level:'tip',text:`${a.handName} 是强牌，加注更能榨取价值`});
+  }else if(a.action==='raise'){
+    if(a.equity<30)msgs.push({level:'warn',text:`胜率仅 ${a.equity}%，加注偏冒进`});
+  }else if(a.action==='check'){
+    if(a.handT>=5&&a.equity>=65)msgs.push({level:'tip',text:`${a.handName} 强牌，主动下注比过牌更好`});
+  }
+  return msgs;
+}
+
+function getStyleStats(handHistory){
+  const allLogs=handHistory.flatMap(h=>h.playerLog||[]);
+  const total=allLogs.length;
+  if(total===0)return null;
+  const byStreet=s=>allLogs.filter(a=>a.street===s);
+  const folds=allLogs.filter(a=>a.action==='fold').length;
+  const raises=allLogs.filter(a=>a.action==='raise').length;
+  const calls=allLogs.filter(a=>a.action==='call').length;
+  const checks=allLogs.filter(a=>a.action==='check').length;
+  const vpipHands=handHistory.filter(h=>(h.playerLog||[]).some(a=>a.street==='pre'&&(a.action==='call'||a.action==='raise'))).length;
+  const vpip=Math.round(vpipHands/handHistory.length*100);
+  const af=calls+checks>0?(raises/(calls+checks)).toFixed(1):'∞';
+  const foldPct=Math.round(folds/total*100);
+  const raisePct=Math.round(raises/total*100);
+  const preLogs=byStreet('pre');
+  const pfr=preLogs.length>0?Math.round(preLogs.filter(a=>a.action==='raise').length/handHistory.length*100):0;
+  const riverFolds=byStreet('river').filter(a=>a.action==='fold').length;
+  const riverTotal=byStreet('river').length;
+  const riverFoldPct=riverTotal>0?Math.round(riverFolds/riverTotal*100):0;
+  const badFolds=allLogs.filter(a=>a.action==='fold'&&a.equity!=null&&a.equity>=50).length;
+  const looseCalls=allLogs.filter(a=>a.action==='call'&&a.equity!=null&&a.equity<30&&a.potOdds>0&&a.equity<a.potOdds).length;
+  const missedValue=allLogs.filter(a=>(a.action==='call'||a.action==='check')&&a.handT>=5&&a.equity>=65).length;
+  return{total,folds,raises,calls,checks,vpip,af,foldPct,raisePct,pfr,riverFoldPct,riverTotal,badFolds,looseCalls,missedValue};
+}
+
+function buildStylePrompt(stats,handHistory,wins){
+  const winRate=Math.round(wins/handHistory.length*100);
+  return`你是一位德州扑克教练。请用2-3句简洁中文，根据以下数据评价玩家风格并给出最重要的一条改进建议：
+VPIP=${stats.vpip}% PFR=${stats.pfr}% AF=${stats.af} 弃牌率=${stats.foldPct}% 近期胜率=${winRate}% 漏价值次数=${stats.missedValue} 错误弃牌=${stats.badFolds} 错误跟注=${stats.looseCalls}
+只输出建议本身，不要用"您"，不要有标题，不要有引号，口吻直接。`;
+}
+
+function buildHandPrompt(h,stats){
+  const plog=h.playerLog||[];
+  const actions=plog.map(a=>`${({pre:'翻前',flop:'翻牌',turn:'转牌',river:'河牌'})[a.street]||a.street} ${a.action} 胜率${a.equity??'?'}% 赔率${a.potOdds??0}% 牌型:${a.handName}`).join(' | ');
+  return`德州扑克教练点评。一句话（25字以内）指出这手牌最值得改进的地方，或者肯定打得好的点：
+公共牌:${(h.comm||[]).map(c=>c.value+c.suit).join('')} 底牌:${(h.playerCards||[]).map(c=>c.value+c.suit).join('')} 结果:${h.winner==='player'?'赢':'输'} 底池:${h.pot}
+决策:${actions||'无'}
+只输出点评本身，不超过25字，直接。`;
+}
+
+async function fetchCoaching(prompt,cacheKey){
+  if(S.coachCache[cacheKey]!==undefined)return S.coachCache[cacheKey];
+  S.coachCache[cacheKey]=null; // mark pending
+  try{
+    const res=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:150,messages:[{role:'user',content:prompt}]})
+    });
+    if(!res.ok){S.coachCache[cacheKey]=undefined;return'';}
+    const data=await res.json();
+    const text=(data.content?.[0]?.text||'').trim();
+    S.coachCache[cacheKey]=text||undefined;
+    return text;
+  }catch(e){
+    // CORS / network / no API key – silently skip
+    S.coachCache[cacheKey]=undefined;
+    return'';
+  }
+}
+
 function renderCoach(){
   const cp=document.getElementById('coach-panel');
   if(S.phase==='lobby'){cp.innerHTML='';return}
@@ -770,123 +854,110 @@ function renderCoach(){
         <div style="height:4px;background:rgba(255,255,255,.07);border-radius:2px;overflow:hidden"><div style="height:100%;width:${progress}%;background:linear-gradient(90deg,${rank.color}88,${rank.color});border-radius:2px;transition:width .5s"></div></div>
       </div>`:'<div style="color:#FFD700;font-size:11px;text-align:center;padding:3px 0">🌟 已达最高段位</div>'}
     </div>`;
-
-    // CHIP CHART
     const chartBlock=`
     <div style="background:rgba(255,255,255,.025);border:1px solid #0f2014;border-radius:12px;padding:10px 12px;margin-bottom:10px">
       <div style="color:#7a9a84;font-size:11px;letter-spacing:.5px;margin-bottom:4px">筹码走势</div>
       ${chipChartSVG(S.stats.chipHistory)}
     </div>`;
-
     if(S.handHistory.length===0){
       content=rankBar+chartBlock+`<div style="text-align:center;padding:18px 0;color:#2a4a34;font-size:13px;line-height:2">完成一局后在此复盘<br><span style="font-size:11px;color:#1a3020">记录你的每个决策与风格分析</span></div>`;
     } else {
-      const allLogs=S.handHistory.flatMap(h=>h.playerLog||[]);
-      const total=allLogs.length;
-      const folds=allLogs.filter(a=>a.action==='fold').length;
-      const raises=allLogs.filter(a=>a.action==='raise').length;
-      const calls=allLogs.filter(a=>a.action==='call').length;
-      const checks=allLogs.filter(a=>a.action==='check').length;
-      const vpipHands=S.handHistory.filter(h=>(h.playerLog||[]).some(a=>a.street==='pre'&&(a.action==='call'||a.action==='raise'))).length;
-      const vpip=S.handHistory.length>0?Math.round(vpipHands/S.handHistory.length*100):0;
-      const af=calls+checks>0?(raises/(calls+checks)).toFixed(1):'∞';
-      const foldPct=total>0?Math.round(folds/total*100):0;
+      const st=getStyleStats(S.handHistory)||{total:0,vpip:0,af:'0',foldPct:0,raisePct:0,pfr:0,riverFoldPct:0,riverTotal:0,badFolds:0,looseCalls:0,missedValue:0,folds:0,raises:0,calls:0,checks:0};
       const wins=S.handHistory.filter(h=>h.winner==='player').length;
-      const winRate=S.handHistory.length>0?Math.round(wins/S.handHistory.length*100):0;
-      const badFolds=allLogs.filter(a=>a.action==='fold'&&a.equity!=null&&a.equity>=50).length;
-      const looseCalls=allLogs.filter(a=>a.action==='call'&&a.equity!=null&&a.equity<30&&a.potOdds>0&&a.equity<a.potOdds).length;
-      const overFolds=allLogs.filter(a=>a.action==='fold'&&a.equity!=null&&a.equity>=40&&a.potOdds>0&&a.equity>=a.potOdds).length;
-      let styleLabel='',styleColor='#B8943A',styleDesc='';
-      if(total<4){styleLabel='数据积累中';styleColor='#3a5a42';styleDesc='再打几局，分析你的风格';}
-      else if(vpip>=70&&raises/Math.max(total,1)>=.35){styleLabel='激进鱼';styleColor='#FF6655';styleDesc='入池太松，加注太多，容易被人读牌';}
-      else if(vpip>=60&&raises/Math.max(total,1)>=.25){styleLabel='LAG 打法';styleColor='#FF8C42';styleDesc='宽松激进，需要更强的读牌能力支撑';}
-      else if(vpip<=30&&raises/Math.max(total,1)>=.3){styleLabel='TAG 打法';styleColor='#44CC77';styleDesc='紧凶是经典赢钱打法，继续保持';}
-      else if(vpip<=25&&raises/Math.max(total,1)<.15){styleLabel='Nit 打法';styleColor='#4A9EFF';styleDesc='过于保守，被人读出范围，应适当扩宽参与';}
-      else if(foldPct>=55){styleLabel='Call Station';styleColor='#FF8C42';styleDesc='跟注过多，缺乏主动性';}
-      else{styleLabel='均衡打法';styleColor='#B8943A';styleDesc='风格相对均衡，继续优化细节';}
-
-      // ACHIEVEMENTS BLOCK
+      const winRate=Math.round(wins/S.handHistory.length*100);
+      const {vpip,af,foldPct,raisePct,pfr,riverFoldPct,riverTotal,badFolds,looseCalls,missedValue}=st;
+      const overFolds=S.handHistory.flatMap(h=>h.playerLog||[]).filter(a=>a.action==='fold'&&a.equity!=null&&a.equity>=40&&a.potOdds>0&&a.equity>=a.potOdds).length;
+      let styleLabel='',styleColor='#B8943A';
+      if(st.total<4){styleLabel='数据积累中';styleColor='#3a5a42';}
+      else if(vpip>=70&&st.raises/Math.max(st.total,1)>=.35){styleLabel='激进鱼';styleColor='#FF6655';}
+      else if(vpip>=60&&st.raises/Math.max(st.total,1)>=.25){styleLabel='LAG 打法';styleColor='#FF8C42';}
+      else if(vpip<=30&&st.raises/Math.max(st.total,1)>=.3){styleLabel='TAG 打法';styleColor='#44CC77';}
+      else if(vpip<=25&&st.raises/Math.max(st.total,1)<.15){styleLabel='Nit 打法';styleColor='#4A9EFF';}
+      else if(foldPct>=55){styleLabel='跟注站';styleColor='#FF8C42';}
+      else{styleLabel='均衡打法';styleColor='#B8943A';}
+      const metrics=[
+        {k:'VPIP',v:vpip+'%',c:vpip>=40?'#FF8C42':vpip>=20?'#44CC77':'#4A9EFF',tip:'入池频率。健康 20-35%。过高起手牌太松，过低太保守。'},
+        {k:'PFR',v:pfr+'%',c:pfr>=25?'#FFD700':pfr>=12?'#44CC77':'#4A9EFF',tip:'翻前加注率。健康 12-25%。与 VPIP 差距应 <15%。'},
+        {k:'AF',v:af,c:parseFloat(af)>=2?'#FFD700':parseFloat(af)>=1?'#44CC77':'#4A9EFF',tip:'激进系数=加注÷(跟注+过牌)。>2 激进，1-2 均衡，<1 被动。'},
+        {k:'弃牌%',v:foldPct+'%',c:foldPct>=55?'#FF6655':foldPct>=30?'#44CC77':'#4A9EFF',tip:'总弃牌率。翻前 60-80% 正常，翻后过高说明被压制。'},
+        {k:'河牌弃',v:riverTotal>0?(riverFoldPct+'%'):'--',c:(riverFoldPct||0)>60?'#FF6655':(riverFoldPct||0)>35?'#44CC77':'#4A9EFF',tip:'河牌圈弃牌率。>60% 容易被诈唬，成为被针对的目标。'},
+        {k:'漏价值',v:missedValue+'次',c:missedValue>3?'#FF8C42':missedValue>0?'#FFD700':'#44CC77',tip:'强牌未加注次数。顺子/葫芦以上应主动下注榨取价值。'},
+      ];
+      const styleKey='style_'+S.handHistory.length+'_'+wins;
+      if(!S.coachCache[styleKey]&&st.total>=4){
+        fetchCoaching(buildStylePrompt(st,S.handHistory,wins),styleKey).then(t=>{if(t)renderCoach();}).catch(()=>{});
+      }
+      const aiStyleText=S.coachCache[styleKey]||(st.total>=4?'<span style="color:#2a4040;font-size:10px">AI 教练分析中…</span>':'<span style="color:#2a4040;font-size:10px">再打几局后生成 AI 分析</span>');
       const achBlock=`
       <div style="background:rgba(255,255,255,.025);border:1px solid #0f2014;border-radius:12px;padding:10px 12px;margin-bottom:10px">
         <div style="color:#7a9a84;font-size:11px;letter-spacing:.5px;margin-bottom:8px">成就收集 ${S.stats.achievements.length}/${ACH.length}</div>
         <div style="display:flex;flex-wrap:wrap;gap:6px">
-          ${ACH.map(a=>{
-            const unlocked=S.stats.achievements.includes(a.id);
-            return`<div title="${a.name}: ${a.desc}" style="display:flex;align-items:center;gap:4px;background:${unlocked?a.color+'15':'rgba(255,255,255,.03)'};border:1px solid ${unlocked?a.color+'44':'rgba(255,255,255,.06)'};border-radius:20px;padding:3px 8px 3px 6px;opacity:${unlocked?1:.38}">
-              <span style="font-size:13px;${unlocked?'':'filter:grayscale(1)'}">${a.emoji}</span>
-              <span style="color:${unlocked?a.color:'#3a5a42'};font-size:9px;font-weight:700">${a.name}</span>
-            </div>`;
-          }).join('')}
+          ${ACH.map(a=>{const unlocked=S.stats.achievements.includes(a.id);return`<div style="display:flex;align-items:center;gap:4px;background:${unlocked?a.color+'15':'rgba(255,255,255,.03)'};border:1px solid ${unlocked?a.color+'44':'rgba(255,255,255,.06)'};border-radius:20px;padding:3px 8px 3px 6px;opacity:${unlocked?1:.38}"><span style="font-size:13px;${unlocked?'':'filter:grayscale(1)'}">${a.emoji}</span><span style="color:${unlocked?a.color:'#3a5a42'};font-size:9px;font-weight:700">${a.name}</span></div>`;}).join('')}
         </div>
       </div>`;
-
       const statBlock=`
       <div style="background:rgba(255,255,255,.025);border:1px solid #0f2014;border-radius:12px;padding:12px 14px;margin-bottom:10px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-          <div>
-            <div style="color:#7a9a84;font-size:10px;letter-spacing:.5px;margin-bottom:3px">综合风格</div>
-            <div style="color:${styleColor};font-size:16px;font-weight:900">${styleLabel}</div>
-            <div style="color:#3a5a42;font-size:11px;margin-top:3px;line-height:1.5">${styleDesc}</div>
-          </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div><div style="color:#7a9a84;font-size:10px;letter-spacing:.5px;margin-bottom:3px">综合风格</div><div style="color:${styleColor};font-size:16px;font-weight:900">${styleLabel}</div></div>
           <div style="text-align:right;flex-shrink:0;margin-left:10px">
             <div style="color:#3a5a42;font-size:10px">近期胜率</div>
             <div style="color:${winRate>=50?'#44CC77':'#FF6655'};font-size:22px;font-weight:900">${winRate}%</div>
             <div style="color:#2a3a2a;font-size:9px">${wins}/${S.handHistory.length} 局</div>
           </div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:10px">
-          ${[['VPIP',vpip+'%',vpip>=40?'#FF8C42':vpip>=20?'#44CC77':'#4A9EFF','入池频率'],
-             ['AF',af,parseFloat(af)>=2?'#FFD700':parseFloat(af)>=1?'#44CC77':'#4A9EFF','激进系数'],
-             ['弃牌%',foldPct+'%',foldPct>=50?'#FF6655':foldPct>=30?'#44CC77':'#4A9EFF','弃牌比例'],
-             ['加注%',Math.round(raises/Math.max(total,1)*100)+'%','#B8943A','加注频率']
-          ].map(([k,v,c,sub])=>`<div style="background:rgba(0,0,0,.3);border-radius:8px;padding:7px 6px;text-align:center">
-            <div style="color:${c};font-size:15px;font-weight:900;line-height:1">${v}</div>
-            <div style="color:#5a7a64;font-size:9px;margin-top:3px;font-weight:700">${k}</div>
-            <div style="color:#2a3a2a;font-size:8px">${sub}</div>
-          </div>`).join('')}
+        <div style="background:rgba(68,180,100,.05);border:1px solid rgba(68,180,100,.15);border-radius:9px;padding:9px 11px;margin-bottom:10px;font-size:11px;color:#7aaa84;line-height:1.65">🤖 ${aiStyleText}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-bottom:10px">
+          ${metrics.map(({k,v,c,tip})=>`<div style="background:rgba(0,0,0,.3);border-radius:8px;padding:7px 6px;text-align:center" title="${tip}"><div style="color:${c};font-size:14px;font-weight:900;line-height:1">${v}</div><div style="color:#5a7a64;font-size:9px;margin-top:3px;font-weight:700">${k}</div><div style="color:#2a3a2a;font-size:8px;margin-top:2px;line-height:1.3">${tip.split('。')[0]}</div></div>`).join('')}
         </div>
-        ${badFolds>0||looseCalls>0||overFolds>0?`
+        ${badFolds>0||looseCalls>0||overFolds>0||missedValue>0?`
         <div style="background:rgba(255,100,80,.06);border:1px solid rgba(255,100,80,.2);border-radius:9px;padding:8px 10px">
           <div style="color:#FF8866;font-size:11px;font-weight:700;margin-bottom:5px">⚠ 发现潜在问题</div>
-          ${badFolds>0?`<div style="color:#6a8a74;font-size:11px;line-height:1.6;margin-bottom:3px">· 有 <span style="color:#FFD700;font-weight:700">${badFolds}</span> 次弃牌时胜率≥50%，可能放弃了优势</div>`:''}
-          ${looseCalls>0?`<div style="color:#6a8a74;font-size:11px;line-height:1.6;margin-bottom:3px">· 有 <span style="color:#FF8C42;font-weight:700">${looseCalls}</span> 次跟注胜率不及底池赔率</div>`:''}
-          ${overFolds>0?`<div style="color:#6a8a74;font-size:11px;line-height:1.6">· 有 <span style="color:#4A9EFF;font-weight:700">${overFolds}</span> 次弃牌赔率划算但选择了放弃</div>`:''}
+          ${badFolds>0?`<div style="color:#6a8a74;font-size:11px;line-height:1.7;margin-bottom:2px">· <span style="color:#FFD700;font-weight:700">${badFolds} 次</span>弃牌时胜率≥50%，放弃了正期望</div>`:''}
+          ${looseCalls>0?`<div style="color:#6a8a74;font-size:11px;line-height:1.7;margin-bottom:2px">· <span style="color:#FF8C42;font-weight:700">${looseCalls} 次</span>跟注时赔率不够，负期望决策</div>`:''}
+          ${overFolds>0?`<div style="color:#6a8a74;font-size:11px;line-height:1.7;margin-bottom:2px">· <span style="color:#4A9EFF;font-weight:700">${overFolds} 次</span>赔率划算却弃牌，过度保守</div>`:''}
+          ${missedValue>0?`<div style="color:#6a8a74;font-size:11px;line-height:1.7">· <span style="color:#FFD700;font-weight:700">${missedValue} 次</span>持有强牌未加注，漏掉价值</div>`:''}
         </div>`:'<div style="color:#3a6a44;font-size:11px;text-align:center;padding:4px 0">✓ 暂无明显决策失误</div>'}
       </div>`;
-
       const STREET_CN={pre:'翻前',flop:'翻牌',turn:'转牌',river:'河牌'};
       const aColor=a=>a==='fold'?'#FF5544':a==='raise'?'#FFD700':a==='check'?'#7a9a84':'#44CC77';
       const handCards=S.handHistory.map(h=>{
         const plog=h.playerLog||[];
+        const cacheKey='hand_'+h.handNum;
+        if(!S.coachCache[cacheKey]&&plog.length>0){
+          fetchCoaching(buildHandPrompt(h,st),cacheKey).then(t=>{if(t)renderCoach();}).catch(()=>{});
+        }
+        const aiComment=S.coachCache[cacheKey]||(plog.length>0?'…':'');
         return`
         <div style="background:rgba(255,255,255,.02);border:1px solid #0f1f10;border-radius:11px;padding:10px 12px;margin-bottom:8px">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
             <span style="color:#B8943A;font-weight:800;font-size:11px">第${h.handNum}局</span>
             <div style="display:flex;gap:3px;flex-wrap:wrap">${(h.comm||[]).map(c=>`<span style="background:#FFFCF0;border-radius:3px;padding:1px 4px;font-size:9px;font-weight:700;color:${RED_SUITS.has(c.suit)?'#C81010':'#111'}">${c.value}${c.suit}</span>`).join('')}</div>
             <span style="margin-left:auto;color:${h.winner==='player'?'#44CC77':'#FF6655'};font-size:10px;font-weight:700;flex-shrink:0">${h.winner==='player'?'🏆 赢':'❌ 输'}</span>
           </div>
-          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:7px;flex-wrap:wrap">
             ${(h.playerCards||[]).map(c=>`<span style="background:#FFFCF0;border-radius:4px;padding:2px 6px;font-size:11px;font-weight:800;color:${RED_SUITS.has(c.suit)?'#C81010':'#111'}">${c.value}${c.suit}</span>`).join('')}
             ${h.finalHand?`<span style="color:#B8943A;font-size:10px;margin-left:4px">→ ${h.finalHand.n}</span>`:''}
             <span style="color:#3a5a42;font-size:10px">底池 ◈${fmtChips(h.pot||0)}</span>
           </div>
+          ${aiComment&&aiComment!=='…'?`<div style="background:rgba(68,180,100,.05);border-left:2px solid rgba(68,180,100,.3);border-radius:0 7px 7px 0;padding:5px 9px;margin-bottom:7px;font-size:10px;color:#6aaa84;line-height:1.55">🤖 ${aiComment}</div>`:aiComment==='…'?`<div style="padding:4px 0 7px;font-size:9px;color:#1e3020">🤖 教练点评加载中…</div>`:''}
           ${plog.length===0?`<div style="color:#2a3a2a;font-size:11px;padding:4px 0">本局无决策记录</div>`:
             plog.map(a=>{
-              const warn=a.action==='fold'&&a.equity>=50?'⚠':a.action==='call'&&a.equity<30&&a.potOdds>a.equity?'⚠':'';
-              return`<div style="display:flex;align-items:flex-start;gap:7px;padding:5px 0;border-bottom:1px solid #0a180b">
-                <span style="color:#3a5a42;font-size:9px;flex-shrink:0;padding-top:1px;width:28px">${STREET_CN[a.street]||a.street}</span>
-                <span style="background:${aColor(a.action)}22;border:1px solid ${aColor(a.action)}44;border-radius:20px;padding:1px 7px;color:${aColor(a.action)};font-size:9px;font-weight:800;flex-shrink:0">${a.action==='check'?'过牌':a.action==='fold'?'弃牌':a.action==='raise'?`加注${fmtChips(a.amount)}`:`跟注${fmtChips(a.amount)}`}</span>
-                <div style="flex:1;min-width:0">
-                  <span style="color:#5a7a64;font-size:9px">${a.handName}</span>
-                  ${a.equity!=null?`<span style="color:${a.equity>=60?'#44CC77':a.equity>=40?'#FFD700':'#FF6655'};font-size:9px;margin-left:5px">胜率${a.equity}%</span>`:''}
-                  ${a.potOdds>0?`<span style="color:#3a5a42;font-size:9px;margin-left:4px">赔率${a.potOdds}%</span>`:''}
+              const fb=getActionFeedback(a);
+              return`<div style="padding:5px 0;border-bottom:1px solid #0a180b">
+                <div style="display:flex;align-items:flex-start;gap:7px">
+                  <span style="color:#3a5a42;font-size:9px;flex-shrink:0;padding-top:2px;width:28px">${STREET_CN[a.street]||a.street}</span>
+                  <span style="background:${aColor(a.action)}22;border:1px solid ${aColor(a.action)}44;border-radius:20px;padding:1px 7px;color:${aColor(a.action)};font-size:9px;font-weight:800;flex-shrink:0">${a.action==='check'?'过牌':a.action==='fold'?'弃牌':a.action==='raise'?`+${fmtChips(a.amount)}`:`跟${fmtChips(a.amount)}`}</span>
+                  <div style="flex:1;min-width:0;display:flex;flex-wrap:wrap;gap:3px;align-items:center">
+                    <span style="color:#5a7a64;font-size:9px">${a.handName}</span>
+                    ${a.equity!=null?`<span style="background:${a.equity>=60?'rgba(68,204,119,.12)':a.equity>=40?'rgba(255,215,0,.12)':'rgba(255,102,85,.12)'};border-radius:10px;padding:1px 5px;color:${a.equity>=60?'#44CC77':a.equity>=40?'#FFD700':'#FF6655'};font-size:9px;font-weight:700">胜 ${a.equity}%</span>`:''}
+                    ${a.potOdds>0?`<span style="background:rgba(255,255,255,.04);border-radius:10px;padding:1px 5px;color:#4a6a54;font-size:9px">赔率 ${a.potOdds}%</span>`:''}
+                  </div>
                 </div>
-                ${warn?`<span style="color:#FFD700;font-size:10px;flex-shrink:0">${warn}</span>`:''}
+                ${fb.length>0?fb.map(f=>`<div style="margin-top:3px;margin-left:35px;font-size:9px;color:${f.level==='warn'?'#FF9966':'#66AAFF'};line-height:1.5">${f.level==='warn'?'⚠':'💡'} ${f.text}</div>`).join(''):''}
               </div>`;
             }).join('')}
         </div>`;
       }).join('');
-
       content = rankBar + chartBlock + achBlock + statBlock + handCards;
     }
   }
@@ -1177,40 +1248,45 @@ function doShowdown(){
   // ── Side-pot aware distribution ──────────────────────
   // Sort all by totalIn ascending to process side pots from smallest
   function distributePots(contestants, allPlayers){
-    let remaining=[...allPlayers].filter(p=>p.totalIn>0);
-    let resolved={}; // id -> chips won
+    // Safe side-pot distribution
+    // Work on copies so we don't mutate originals
+    const pool=[...allPlayers].map(p=>({...p}));
+    const resolved={};
     contestants.forEach(p=>{resolved[p.id]=0});
+    allPlayers.forEach(p=>{if(!(p.id in resolved))resolved[p.id]=0});
 
-    while(remaining.some(p=>p.totalIn>0)){
-      // The smallest all-in cap among active contestants
-      const minIn=Math.min(...contestants.filter(p=>!p.folded&&p.totalIn>0).map(p=>p.totalIn).concat(
-        remaining.filter(p=>!contestants.find(c=>c.id===p.id)).map(p=>p.totalIn)
-      ));
-      if(!isFinite(minIn)||minIn<=0)break;
+    let safety=0;
+    while(safety++<20){
+      // Any chips left to distribute?
+      const totalLeft=pool.reduce((s,p)=>s+p.totalIn,0);
+      if(totalLeft<=0)break;
 
-      // Build this side pot
+      // Cap = smallest totalIn among anyone still in pool
+      const cap=Math.min(...pool.filter(p=>p.totalIn>0).map(p=>p.totalIn));
+      if(!isFinite(cap)||cap<=0)break;
+
+      // Build pot: each player contributes up to cap
       let potSize=0;
-      remaining.forEach(p=>{
-        const take=Math.min(p.totalIn,minIn);
+      pool.forEach(p=>{
+        const take=Math.min(p.totalIn,cap);
         potSize+=take;
-        p.totalIn-=take;
+        p.totalIn=Math.max(0,p.totalIn-take);
       });
-      remaining=remaining.filter(p=>p.totalIn>0||contestants.find(c=>c.id===p.id));
+      if(potSize<=0)break;
 
-      // Who can win this pot (active players who contributed at least minIn original)
+      // Active (non-folded) contestants eligible for this pot
       const eligible=contestants.filter(p=>!p.folded);
       if(eligible.length===0){
-        // Everyone folded in this pot – return to last folder? Give to anyone with chips
-        // Simplified: give to AI with most chips
-        const fb=allPlayers.find(p=>p.totalIn>=0);
-        if(fb)resolved[fb.id]=(resolved[fb.id]||0)+potSize;
+        // Edge case: nobody to give it to - split among all contestants
+        const share=Math.floor(potSize/contestants.length)||0;
+        contestants.forEach(p=>{resolved[p.id]=(resolved[p.id]||0)+share;});
       } else {
         eligible.sort((a,b)=>b.score.r-a.score.r);
         const best=eligible[0].score.r;
         const pwinners=eligible.filter(e=>e.score.r===best);
         const share=Math.floor(potSize/pwinners.length);
         const rem=potSize-share*pwinners.length;
-        pwinners.forEach((w,i)=>{resolved[w.id]=(resolved[w.id]||0)+share+(i===0?rem:0)});
+        pwinners.forEach((w,i)=>{resolved[w.id]=(resolved[w.id]||0)+share+(i===0?rem:0);});
       }
     }
     return resolved;
