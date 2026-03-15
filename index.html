@@ -356,11 +356,13 @@ function makeAiDecision(ai,comm,pot,curBet){
     }
     if(pfStr>=playThresh){
       if(toCall===0&&R()<effAgg*.6)return mkRaise(p,pot,curBet,ai.chips,'bluff',pfStr,phase,why(`中等牌加注 pfStr${pfStr}`));
-      if(toCall>0&&toCall>curBet*.6&&R()<p.foldTo3bet*.8)return mkFold(p,'fold',why(`中等牌面对大注 pfStr${pfStr}`));
+      if(toCall>0&&curBet>BB&&R()<p.foldTo3bet*.8)return mkFold(p,'fold',why(`中等牌面对3bet pfStr${pfStr}`)); // only fold to actual raise above BB
       return mkCall(toCall||0,p,'call',why(`中等牌入池 pfStr${pfStr}`));
     }
-    // Weak hand: fold most of the time, occasionally bluff-limp if loose
-    if(toCall===0&&R()<p.preflopCont*.15*tm)return mkCall(0,p,'call',why(`垃圾牌limp pfStr${pfStr}`));
+    // Weak hand: fold most of the time, occasionally limp if just BB (no raise)
+    const isJustBB = curBet<=BB;
+    const limpProb = isJustBB ? p.preflopCont*.25*tm : p.preflopCont*.05*tm;
+    if(toCall===0||R()<limpProb)return mkCall(toCall||0,p,'call',why(`垃圾牌limp pfStr${pfStr}`));
     return mkFold(p,'fold',why(`垃圾牌弃牌 pfStr${pfStr}`));
   }
   if(isShort){if(t>=2||(tilted&&R()<.6))return mkRaise(p,pot,curBet,ai.chips,t>=2?'strong':'bluff',t,phase,why(`短筹码All-in`));if(potOdds<.3)return mkCall(toCall,p,'call',why('短筹码·赔率可'));return mkFold(p,'fold',why('短筹码·弃牌'))}
@@ -370,9 +372,9 @@ function makeAiDecision(ai,comm,pot,curBet){
   if(t===2){if(toCall===0){if(R()<effAgg*.72)return mkRaise(p,pot,curBet,ai.chips,'strong',t,phase,why('两对·下注'));return mkCheck(p,why('两对·诱骗'))}if(R()<effAgg*.48&&phase!=='pre')return mkRaise(p,pot,curBet,ai.chips,'reraise',t,phase,why('两对·反加'));if(potOdds<.38||R()>p.panicFold)return mkCall(toCall,p,'call',why(`两对·跟注·赔率${potOddsPct}%`));return mkFold(p,'fold',why('两对·弃牌'))}
   if(t===1){if(toCall===0){if(R()<p.donkFreq*tm)return mkRaise(p,pot,curBet,ai.chips,'strong',t,phase,why(`donk下注`));if(R()<effAgg*.36)return mkRaise(p,pot,curBet,ai.chips,'strong',t,phase,why('一对·试探'));return mkCheck(p,why('一对·过牌'))}
     const ratio=toCall/Math.max(pot,1);
-    // Fold probability scales with bet size + persona; base is low for small bets
+    // Fold probability scales with bet size + persona; one pair is a medium hand
     const opTightness=p.panicFold-p.bluffFreq*0.25;
-    const baseFoldProb=Math.min(0.92, ratio*1.2 + Math.max(0,opTightness)*0.4);
+    const baseFoldProb=Math.min(0.85, ratio*0.8 + Math.max(0,opTightness)*0.3);
     const foldNoise=R()*0.25-0.12; // ±12% random variance
     const foldProb=Math.min(0.95,Math.max(0,baseFoldProb+foldNoise));
     if(R()<foldProb)return mkFold(p,'fold',why(`一对·弃牌 ratio=${ratio.toFixed(2)}`));
@@ -384,7 +386,7 @@ function makeAiDecision(ai,comm,pot,curBet){
   // Tightness factor: panicFold drives fold tendency, bluffFreq = call-bluff tendency
   const tightness=p.panicFold-p.bluffFreq*0.3; // gemini=+0.39, grok=-0.09
   // Fold prob rises with bet size; base is near 0 for tiny bets
-  const hcFoldBase=Math.min(0.95, ratio*1.5 + Math.max(0,tightness)*0.5);
+  const hcFoldBase=Math.min(0.92, ratio*1.1 + Math.max(0,tightness)*0.4);
   const hcFoldProb=Math.min(0.95,Math.max(0, hcFoldBase + R()*0.22-0.11));
   if(phase==='river'&&R()<p.bluffFreq*.5*tm)return mkRaise(p,pot,curBet,ai.chips,'bluff',t,phase,why('河牌蒙'));
   if(tilted&&R()<.35)return mkCall(toCall,p,'call',why('倾斜·跟注'));
@@ -651,16 +653,25 @@ function renderFelt(){
     const isWin=S.result.winner==='player';
     const borderColor=isWin?'#44CC77':S.result.color||'#FF6655';
     const textColor=isWin?'#44CC77':S.result.color||'#FF8866';
-    // Build hand breakdown: player's best 5 cards + label
+
+    // Find winner's cards to display their best combo
+    let winnerCards=[];
+    if(isWin){
+      winnerCards=S.playerCards;
+    } else {
+      const winAi=S.ais.find(a=>a.id===S.result.winner);
+      if(winAi) winnerCards=winAi.cards||[];
+    }
+
+    // Build winner's best 5-card combo from hole cards + community
     let handDetail='';
-    if(S.playerCards.length>0&&S.comm.length>0){
-      const allCards=[...S.playerCards,...S.comm];
+    if(winnerCards.length>0&&S.comm.length>0){
+      const allCards=[...winnerCards,...S.comm];
       const best=evalHand(allCards);
-      // Find the best 5-card combo
       const bestCombo=combos(allCards,5).reduce((b,c)=>{const s=score5(c);return s.r>b.r?{r:s.r,cards:c}:b},{r:-1,cards:[]});
       const comboStr=bestCombo.cards.map(c=>`<span style="display:inline-block;background:#FFFCF0;border-radius:3px;padding:1px 5px;font-size:11px;font-weight:800;color:${RED_SUITS.has(c.suit)?'#C81010':'#111'};margin:0 1px">${c.value}${c.suit}</span>`).join('');
       handDetail=`<div style="margin-top:7px;display:flex;flex-direction:column;align-items:center;gap:4px">
-        <div style="color:${isWin?'#B8943A':'#6a6a6a'};font-size:13px;font-weight:900;letter-spacing:.5px">${best.n}</div>
+        <div style="color:${isWin?'#B8943A':'#CC6655'};font-size:13px;font-weight:900;letter-spacing:.5px">${best.n}</div>
         <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:2px">${comboStr}</div>
       </div>`;
     }
@@ -669,7 +680,6 @@ function renderFelt(){
       <div style="font-size:28px;margin-bottom:3px">${isWin?'🎉':'💀'}</div>
       <div style="color:${textColor};font-weight:900;font-size:19px;margin-bottom:2px">${isWin?'你赢了！':S.result.winner+' 赢了'}</div>
       <div style="color:#3A5A44;font-size:11px;margin-bottom:2px">+${fmtChips(S.result.amount)} 筹码</div>
-      ${S.result.handName&&S.result.handName!==''&&!isWin?`<div style="color:#5a6a5a;font-size:11px;margin-bottom:4px">${S.result.handName}</div>`:''}
       ${handDetail}
     </div>`;
   })();
@@ -694,9 +704,31 @@ function renderPlayerHand(){
         ${S.currentPlayerPos?posToken(S.currentPlayerPos):''}
         ${allinTag}
       </div>
-      ${S.playerFolded?`<div style="color:#FF5544;font-size:13px;font-weight:800">已弃牌</div>`:
-        handInfo&&S.showCoach?badge(handInfo.n,'#B8943A'):
-        handInfo?badge('? ? ?','#2A5A34'):''}
+      ${(()=>{
+        const isShowdown=S.phase==='showdown';
+        const playerWon=S.result&&S.result.winner==='player';
+        if(S.playerFolded){
+          // 弃牌后：显示"已弃牌" + 如果牌已出足显示自己的最大组合（供参考）
+          if(handInfo&&S.comm.length>=3){
+            const allC=[...S.playerCards,...S.comm];
+            const bestC=combos(allC,5).reduce((b,c)=>{const s=score5(c);return s.r>b.r?{r:s.r,cards:c}:b},{r:-1,cards:[]});
+            const comboStr=bestC.cards.map(c=>`<span style="display:inline-block;background:rgba(255,255,255,.08);border-radius:3px;padding:1px 4px;font-size:10px;font-weight:800;color:${RED_SUITS.has(c.suit)?'#C85050':'#666'};margin:0 1px">${c.value}${c.suit}</span>`).join('');
+            return `<div style="color:#FF5544;font-size:12px;font-weight:800;margin-bottom:3px">已弃牌</div><div style="color:#3a4a3a;font-size:9px;margin-bottom:2px">${handInfo.n}</div><div style="display:flex;flex-wrap:wrap;gap:1px">${comboStr}</div>`;
+          }
+          return `<div style="color:#FF5544;font-size:13px;font-weight:800">已弃牌</div>`;
+        }
+        if(isShowdown&&!playerWon&&handInfo&&S.comm.length>0){
+          // 输牌摊牌：显示自己的最大组合（输了才显示，赢了不重复）
+          const allC=[...S.playerCards,...S.comm];
+          const bestC=combos(allC,5).reduce((b,c)=>{const s=score5(c);return s.r>b.r?{r:s.r,cards:c}:b},{r:-1,cards:[]});
+          const comboStr=bestC.cards.map(c=>`<span style="display:inline-block;background:#FFFCF0;border-radius:3px;padding:1px 4px;font-size:10px;font-weight:800;color:${RED_SUITS.has(c.suit)?'#C81010':'#111'};margin:0 1px">${c.value}${c.suit}</span>`).join('');
+          return `<div style="margin-bottom:3px">${badge(handInfo.n,'#B8943A')}</div><div style="display:flex;flex-wrap:wrap;gap:1px;margin-top:2px">${comboStr}</div>`;
+        }
+        // 游戏中 / 赢牌时：正常显示牌型名（赢了不重复显示组合）
+        if(handInfo&&S.showCoach)return badge(handInfo.n,'#B8943A');
+        if(handInfo)return badge('? ? ?','#2A5A34');
+        return '';
+      })()}
       <div style="margin-top:6px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <span style="color:#44CC77;font-size:12px;font-weight:700">◈ ${fmtChips(S.playerChips)}</span>
         ${S.playerBet>0?`<span style="color:#B8943A;font-size:11px">已注 ${fmtChips(S.playerBet)}</span>`:''}
