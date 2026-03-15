@@ -76,15 +76,15 @@ const AI_CONFIGS=[
 ];
 
 const PERSONAS={
-  gpt4:{aggression:.80,bluffFreq:.40,panicFold:.12,betSizing:[.65,1.0,1.4],slowPlay:.06,preflopCont:.68,streetAgg:[1.0,1.15,1.3,1.5],threeBetFreq:.32,cBetFreq:.78,foldTo3bet:.28,donkFreq:.08,positionAdj:.18,tiltable:false,
+  gpt4:{aggression:.80,bluffFreq:.40,panicFold:.12,betSizing:[.65,1.0,1.4],slowPlay:.06,preflopCont:.68,streetAgg:[1.0,1.15,1.3,1.5],threeBetFreq:.32,cBetFreq:.78,foldTo3bet:.28,donkFreq:.08,positionAdj:.18,tiltable:false,pfPlay:3,pfRaise:6,
     lines:{bluff:['你们都是菜鸡','梭了，怂就认输','不服来战'],strong:['感受一下压力','这把我必赢','加满'],call:['就这点钱也敢下','看你底牌','行吧跟了'],fold:['这把不值得','等好牌','放过你了'],check:['先看看','让你走一步','节约子弹'],reraise:['还敢再加？','好啊，奉陪','来吧']}},
-  gemini:{aggression:.32,bluffFreq:.10,panicFold:.42,betSizing:[.28,.45,.65],slowPlay:.65,preflopCont:.32,streetAgg:[.5,.7,.85,1.2],threeBetFreq:.08,cBetFreq:.38,foldTo3bet:.62,donkFreq:.04,positionAdj:.06,tiltable:false,
+  gemini:{aggression:.32,bluffFreq:.10,panicFold:.42,betSizing:[.28,.45,.65],slowPlay:.65,preflopCont:.32,streetAgg:[.5,.7,.85,1.2],threeBetFreq:.08,cBetFreq:.38,foldTo3bet:.62,donkFreq:.04,positionAdj:.06,tiltable:false,pfPlay:4,pfRaise:7,
     lines:{bluff:['期望值计算完毕','统计上可行','误差范围内'],strong:['牌力优势明显','数据支持行动','胜率确认'],call:['赔率合理','跟注正EV','勉强达标'],fold:['负期望，放弃','数据不支持','这局不划算'],check:['陷阱布置完毕','等待最优时机','控制底池'],reraise:['样本量不够','重新计算中','这不对劲']}},
-  llama:{aggression:.62,bluffFreq:.65,panicFold:.08,betSizing:[.15,.85,2.2],slowPlay:.12,preflopCont:.78,streetAgg:[1.1,.7,1.5,.9],threeBetFreq:.45,cBetFreq:.55,foldTo3bet:.15,donkFreq:.30,positionAdj:.04,tiltable:true,
+  llama:{aggression:.62,bluffFreq:.65,panicFold:.08,betSizing:[.15,.85,2.2],slowPlay:.12,preflopCont:.78,streetAgg:[1.1,.7,1.5,.9],threeBetFreq:.45,cBetFreq:.55,foldTo3bet:.15,donkFreq:.30,positionAdj:.04,tiltable:true,pfPlay:2,pfRaise:5,
     lines:{bluff:['天灵灵地灵灵','玄学指引我','感觉对了就冲'],strong:['今天手气旺','命运选择了我','牌桌风水好'],call:['跟跟跟','随缘','不管了跟了'],fold:['凶位不宜','今日不宜','退退退'],check:['观气象','蓄力中','等待天时'],reraise:['以毒攻毒','乱拳打死老师傅','加！']}},
-  claude:{aggression:.54,bluffFreq:.26,panicFold:.24,betSizing:[.42,.62,.88],slowPlay:.35,preflopCont:.50,streetAgg:[.9,1.0,1.08,1.2],threeBetFreq:.18,cBetFreq:.58,foldTo3bet:.40,donkFreq:.12,positionAdj:.12,tiltable:false,
+  claude:{aggression:.54,bluffFreq:.26,panicFold:.24,betSizing:[.42,.62,.88],slowPlay:.35,preflopCont:.50,streetAgg:[.9,1.0,1.08,1.2],threeBetFreq:.18,cBetFreq:.58,foldTo3bet:.40,donkFreq:.12,positionAdj:.12,tiltable:false,pfPlay:3,pfRaise:6,
     lines:{bluff:['有趣的局面','让我来搅局','试探一下'],strong:['这手牌不错','顺势而为','水到渠成'],call:['保持平衡','看看发展','可以接受'],fold:['这次认输','保留实力','下次再说'],check:['留有余地','先观察','不急'],reraise:['意料之中','我也可以','来回吧']}},
-  grok:{aggression:.88,bluffFreq:.52,panicFold:.07,betSizing:[.90,1.30,2.8],slowPlay:.03,preflopCont:.82,streetAgg:[1.2,1.5,1.7,2.0],threeBetFreq:.50,cBetFreq:.88,foldTo3bet:.12,donkFreq:.22,positionAdj:.10,tiltable:true,
+  grok:{aggression:.88,bluffFreq:.52,panicFold:.07,betSizing:[.90,1.30,2.8],slowPlay:.03,preflopCont:.82,streetAgg:[1.2,1.5,1.7,2.0],threeBetFreq:.50,cBetFreq:.88,foldTo3bet:.12,donkFreq:.22,positionAdj:.10,tiltable:true,pfPlay:2,pfRaise:5,
     lines:{bluff:['你们都输了','连这都看不穿？','懒得掩饰了'],strong:['承认吧','这叫碾压','叫爸爸'],call:['小意思','无聊','就这？'],fold:['行吧这把认了','你运气好','下把补回来'],check:['让你先表演','演完了吗','准备好被收割'],reraise:['哦？来劲了','就喜欢硬碰硬','加回去']}},
 };
 
@@ -180,35 +180,79 @@ function evalHand(cards){
   if(cards.length<5){const vals=cards.map(c=>VAL_NUM[c.value]).sort((a,b)=>b-a);const vc={};vals.forEach(v=>vc[v]=(vc[v]||0)+1);if(Object.values(vc).includes(2)){const p=+Object.keys(vc).find(k=>vc[k]===2);return{r:1000+p,n:'一对',t:1}}return{r:vals[0],n:'高牌',t:0}}
   return combos(cards,5).reduce((b,c)=>{const s=score5(c);return s.r>b.r?s:b},{r:-1,n:'无牌',t:-1});
 }
-function calcEquity(myCards,comm,opponents=2,N=400){
-  // Monte Carlo equity calculation
-  // N=600 gives ~±3% error at 95% confidence
-  if(myCards.length<2)return 50;
-  const rem=deckExcluding(myCards,comm);let wins=0,ties=0;
+function calcEquity(myCards, comm, opponents=2, N=600){
+  // Equity vs UNKNOWN opponents - we don't use AI hole cards here.
+  // Player cannot see opponent cards, so probability must reflect that uncertainty.
+  // Only exclude: player's own cards + community cards already on board.
+  if(myCards.length<2) return 50;
+  const rem=deckExcluding([...myCards,...comm]);
+
+  // ── Flop: exact enumeration over all turn+river combos, random opponents ──
+  if(comm.length===3){
+    let wins=0,ties=0,total=0;
+    for(let i=0;i<rem.length;i++){
+      for(let j=i+1;j<rem.length;j++){
+        const board=[...comm,rem[i],rem[j]];
+        // Sample random opponents from cards not on board (approximate but fair)
+        const oppRem=rem.filter((_,k)=>k!==i&&k!==j);
+        if(oppRem.length<opponents*2) continue;
+        const sh=shuffle(oppRem);
+        const opp=Array.from({length:opponents},(_,k)=>[sh[k*2],sh[k*2+1]]);
+        const my=evalHand([...myCards,...board]).r;
+        const mx=Math.max(...opp.map(h=>evalHand([...h,...board]).r));
+        if(my>mx) wins++;
+        else if(my===mx){
+          const oppScores=opp.map(h=>evalHand([...h,...board]).r);
+          if(!oppScores.some(s=>s>my)) ties+=1/(oppScores.filter(s=>s===my).length+1);
+        }
+        total++;
+      }
+    }
+    return total>0?Math.round((wins+ties)/total*100):50;
+  }
+
+  // ── Turn: exact over river cards, random opponents ──
+  if(comm.length===4){
+    let wins=0,ties=0;
+    for(const river of rem){
+      const board=[...comm,river];
+      const oppRem=rem.filter(c=>c!==river);
+      if(oppRem.length<opponents*2) continue;
+      const sh=shuffle(oppRem);
+      const opp=Array.from({length:opponents},(_,k)=>[sh[k*2],sh[k*2+1]]);
+      const my=evalHand([...myCards,...board]).r;
+      const mx=Math.max(...opp.map(h=>evalHand([...h,...board]).r));
+      if(my>mx) wins++;
+      else if(my===mx){
+        const oppScores=opp.map(h=>evalHand([...h,...board]).r);
+        if(!oppScores.some(s=>s>my)) ties+=1/(oppScores.filter(s=>s===my).length+1);
+      }
+    }
+    return rem.length>0?Math.round((wins+ties)/rem.length*100):50;
+  }
+
+  // ── Preflop / River: Monte Carlo N=600 ──
+  let wins=0,ties=0;
   for(let i=0;i<N;i++){
     const sh=shuffle(rem);let idx=0;
     const opp=Array.from({length:opponents},()=>[sh[idx++],sh[idx++]]);
     const board=[...comm];
-    while(board.length<5)board.push(sh[idx++]);
-    if(board.length!==5)continue;
+    while(board.length<5) board.push(sh[idx++]);
+    if(board.length!==5) continue;
     const my=evalHand([...myCards,...board]).r;
     const oppScores=opp.map(h=>evalHand([...h,...board]).r);
     const mx=Math.max(...oppScores);
-    if(my>mx){
-      wins++;
-    } else if(my===mx){
-      // True tie only if NO opponent beats us AND at least one ties
-      // (handles multi-way: if two opponents both tie us, we split 3 ways = 1/3 each)
-      const tiedCount=oppScores.filter(s=>s===my).length;
+    if(my>mx) wins++;
+    else if(my===mx){
       const beatCount=oppScores.filter(s=>s>my).length;
-      if(beatCount===0) ties+=1/(tiedCount+1); // our share of the split
+      if(beatCount===0) ties+=1/(oppScores.filter(s=>s===my).length+1);
     }
   }
   return Math.round((wins+ties)/N*100);
 }
 function calcOuts(myCards,comm){
   if(comm.length<3)return null;
-  const remDeck=deckExcluding(myCards,comm);
+  const remDeck=deckExcluding([...myCards,...comm]);
   const cur=evalHand([...myCards,...comm]);
   const outCards=remDeck.filter(c=>evalHand([...myCards,...comm,c]).r>cur.r);
   const groups={};outCards.forEach(c=>{const imp=evalHand([...myCards,...comm,c]);groups[imp.n]=(groups[imp.n]||0)+1});
@@ -284,27 +328,62 @@ function makeAiDecision(ai,comm,pot,curBet){
   const why=r=>`[${hand.n}·T${t}] ${phase}·位置${seat}·SPR${spr.toFixed(1)}｜${r}`;
 
   if(phase==='pre'){
-    if(toCall>0&&toCall>=curBet*.5){
-      if(t>=1||R()<p.preflopCont*tm){if(t>=3||R()<p.threeBetFreq*tm)return mkRaise(p,pot,curBet,ai.chips,t>=2?'strong':'bluff',t,phase,why(`3-bet`));return mkCall(toCall,p,'call',why('跟注入池'))}
-      return mkFold(p,'fold',why(`翻前弃牌`))
+    // Preflop hand strength (0-8 scale):
+    // Premium: AA/KK/QQ/AKs=8, JJ/TT/AQs/AKo=7, 99/88/AJs/KQs=6
+    // Playable: 77-55/AT+/KJ+/QJs=5-4, Suited connectors=3, Broadways=3
+    // Fold: everything else = 0-1
+    const [c1,c2]=ai.cards;
+    const v1=VAL_NUM[c1.value],v2=VAL_NUM[c2.value];
+    const hi=Math.max(v1,v2),lo=Math.min(v1,v2);
+    const suited=c1.suit===c2.suit,paired=v1===v2;
+    const gap=hi-lo;
+    let pfStr=0; // preflop strength
+    if(paired){pfStr=hi>=14?8:hi>=12?7:hi>=10?6:hi>=8?5:hi>=6?4:3;}
+    else if(hi===14){pfStr=suited?(lo>=13?8:lo>=12?7:lo>=11?6:lo>=10?5:lo>=9?4:2):(lo>=13?7:lo>=12?6:lo>=10?5:lo>=9?4:2);}
+    else if(hi===13){pfStr=suited?(lo>=12?6:lo>=11?5:lo>=10?4:lo>=9?3:2):(lo>=12?5:lo>=11?4:lo>=10?3:2);}
+    else if(hi===12){pfStr=suited?(lo>=11?5:lo>=10?4:lo>=9?3:2):(lo>=11?4:lo>=10?3:2);}
+    else if(suited&&gap<=1&&hi>=9){pfStr=3;}
+    else if(suited&&gap<=2&&hi>=8){pfStr=2;}
+    else{pfStr=1;}
+    // Raise threshold based on position & pfStr
+    // Late position (seat 3-4) widens RAISE range only, not call range
+    const posAdj=seat>=3?1:0;
+    const playThresh=p.pfPlay||3;  // fixed: position doesn't loosen call range
+    const raiseThresh=Math.max(playThresh+1,(p.pfRaise||6)-posAdj);
+    if(pfStr>=raiseThresh){
+      if(R()<p.threeBetFreq*tm||toCall===0)return mkRaise(p,pot,curBet,ai.chips,'strong',pfStr,phase,why(`强牌开局 pfStr${pfStr}`));
+      return mkCall(toCall,p,'call',why(`强牌跟注 pfStr${pfStr}`));
     }
-    if(t>=2||R()<p.preflopCont*tm){if(R()<effAgg*.88+posBoost)return mkRaise(p,pot,curBet,ai.chips,t>=1?'strong':'bluff',t,phase,why(`开局加注`));return mkCall(toCall||0,p,'call',why('跟注入池'))}
-    return mkFold(p,'fold',why('翻前弃牌'))
+    if(pfStr>=playThresh){
+      if(toCall===0&&R()<effAgg*.6)return mkRaise(p,pot,curBet,ai.chips,'bluff',pfStr,phase,why(`中等牌加注 pfStr${pfStr}`));
+      if(toCall>0&&toCall>curBet*.6&&R()<p.foldTo3bet*.8)return mkFold(p,'fold',why(`中等牌面对大注 pfStr${pfStr}`));
+      return mkCall(toCall||0,p,'call',why(`中等牌入池 pfStr${pfStr}`));
+    }
+    // Weak hand: fold most of the time, occasionally bluff-limp if loose
+    if(toCall===0&&R()<p.preflopCont*.15*tm)return mkCall(0,p,'call',why(`垃圾牌limp pfStr${pfStr}`));
+    return mkFold(p,'fold',why(`垃圾牌弃牌 pfStr${pfStr}`));
   }
   if(isShort){if(t>=2||(tilted&&R()<.6))return mkRaise(p,pot,curBet,ai.chips,t>=2?'strong':'bluff',t,phase,why(`短筹码All-in`));if(potOdds<.3)return mkCall(toCall,p,'call',why('短筹码·赔率可'));return mkFold(p,'fold',why('短筹码·弃牌'))}
   if(t>=6){if(R()<p.slowPlay){if(toCall===0)return mkCheck(p,why('怪兽慢打'));return mkCall(toCall,p,'strong',why('怪兽慢跟'))}return mkRaise(p,pot,curBet,ai.chips,'strong',t,phase,why('怪兽快打'),1.25)}
   if(t>=4){if(toCall===0){if(R()<effAgg*.82)return mkRaise(p,pot,curBet,ai.chips,'strong',t,phase,why('顺/同花·价值'));return mkCheck(p,why('顺/同花·诱骗'))}if(R()<effAgg*.52)return mkRaise(p,pot,curBet,ai.chips,'reraise',t,phase,why('顺/同花·反加'));return mkCall(toCall,p,'call',why('顺/同花·跟注'))}
   if(t===3){if(toCall===0){if(R()<p.slowPlay*.9)return mkCheck(p,why('三条·check-raise陷阱'));return mkRaise(p,pot,curBet,ai.chips,'strong',t,phase,why('三条·下注'))}if(R()<effAgg*.75+.2)return mkRaise(p,pot,curBet,ai.chips,'reraise',t,phase,why('三条check-raise！'));return mkCall(toCall,p,'call',why('三条·慢跟'))}
   if(t===2){if(toCall===0){if(R()<effAgg*.72)return mkRaise(p,pot,curBet,ai.chips,'strong',t,phase,why('两对·下注'));return mkCheck(p,why('两对·诱骗'))}if(R()<effAgg*.48&&phase!=='pre')return mkRaise(p,pot,curBet,ai.chips,'reraise',t,phase,why('两对·反加'));if(potOdds<.38||R()>p.panicFold)return mkCall(toCall,p,'call',why(`两对·跟注·赔率${potOddsPct}%`));return mkFold(p,'fold',why('两对·弃牌'))}
-  if(t===1){if(toCall===0){if(R()<p.donkFreq*tm)return mkRaise(p,pot,curBet,ai.chips,'strong',t,phase,why(`donk下注`));if(R()<effAgg*.36)return mkRaise(p,pot,curBet,ai.chips,'strong',t,phase,why('一对·试探'));return mkCheck(p,why('一对·过牌'))}if(seat>=3&&spr>8&&R()<.38)return mkCall(toCall,p,'call',why('一对·浮注'));const ratio=toCall/Math.max(pot,1);if(ratio<.22||R()>p.panicFold+.08)return mkCall(toCall,p,'call',why(`一对·跟注`));return mkFold(p,'fold',why('一对·弃牌'))}
+  if(t===1){if(toCall===0){if(R()<p.donkFreq*tm)return mkRaise(p,pot,curBet,ai.chips,'strong',t,phase,why(`donk下注`));if(R()<effAgg*.36)return mkRaise(p,pot,curBet,ai.chips,'strong',t,phase,why('一对·试探'));return mkCheck(p,why('一对·过牌'))}
+    const ratio=toCall/Math.max(pot,1);
+    if(ratio>=.7)return mkFold(p,'fold',why('一对·面对大注'));
+    if(ratio>=.4&&R()<p.panicFold+.3)return mkFold(p,'fold',why('一对·跟注过贵'));
+    if(seat>=3&&spr>8&&R()<.38)return mkCall(toCall,p,'call',why('一对·浮注'));
+    if(ratio<.25||R()>p.panicFold+.08)return mkCall(toCall,p,'call',why(`一对·跟注`));
+    return mkFold(p,'fold',why('一对·弃牌'));}
   if(toCall===0){const ct=p.cBetFreq*tm*(phase==='flop'?1.0:phase==='turn'?.6:.4);if(R()<ct)return mkRaise(p,pot,curBet,ai.chips,'bluff',t,phase,why(`c-bet`));if(R()<p.donkFreq*tm)return mkRaise(p,pot,curBet,ai.chips,'bluff',t,phase,why('donk蒙'));return mkCheck(p,why('高牌·过牌'))}
-  if(toCall>=curBet*.65&&R()<p.foldTo3bet)return mkFold(p,'fold',why(`高牌·面对大注`));
-  if(phase==='river'&&R()<p.bluffFreq*.5*tm)return mkRaise(p,pot,curBet,ai.chips,'bluff',t,phase,why('河牌蒙'));
-  if(tilted&&R()<.5)return mkCall(toCall,p,'call',why('倾斜·跟注'));
+  // High card facing a bet: fold unless very cheap or bluff-catching
   const ratio=toCall/Math.max(pot,1);
-  if(ratio<.14&&R()<.58)return mkCall(toCall,p,'call',why('高牌·跟小注'));
-  if(R()<p.panicFold+.15)return mkFold(p,'fold',why('高牌·弃牌'));
-  return mkCall(toCall,p,'call',why('高牌·跟注'));
+  if(ratio>=.5)return mkFold(p,'fold',why('高牌·大注弃牌')); // always fold facing >50% pot
+  if(ratio>=.25&&R()<(1-p.bluffFreq*.6))return mkFold(p,'fold',why('高牌·面对注入'));
+  if(phase==='river'&&R()<p.bluffFreq*.5*tm)return mkRaise(p,pot,curBet,ai.chips,'bluff',t,phase,why('河牌蒙'));
+  if(tilted&&R()<.35)return mkCall(toCall,p,'call',why('倾斜·跟注'));
+  if(ratio<.12&&R()<.45)return mkCall(toCall,p,'call',why('高牌·跟小注'));
+  return mkFold(p,'fold',why('高牌·弃牌'));
 }
 
 // ═══════════════════════════════════════
@@ -774,7 +853,7 @@ function renderCoach(){
         </div>
         <div style="height:6px;background:rgba(255,255,255,.07);border-radius:3px;overflow:hidden"><div style="height:100%;width:${S.equity||0}%;background:linear-gradient(90deg,${eqColor}88,${eqColor});border-radius:3px;transition:width .5s"></div></div>
         <div style="color:#3a5a42;font-size:11px;margin-top:5px">${S.equity>=60?'🟢 明显优势，积极行动':S.equity>=45?'🟡 势均力敌，谨慎为上':'🔴 处于劣势，考虑弃牌'}</div>
-        <div style="color:#2a4030;font-size:9px;margin-top:3px;letter-spacing:.3px">蒙特卡洛模拟 600 次 · 误差约 ±3%</div>
+        <div style="color:#2a4030;font-size:9px;margin-top:3px;letter-spacing:.3px">${S.comm.length>=3?"精确枚举 · 误差<1%":"蒙特卡洛 600次 · 误差约 ±3%"} · 基于未知对手范围</div>
       </div>
       ${handInfo?`<div style="background:rgba(255,255,255,.025);border-radius:11px;padding:11px 13px;border:1px solid #0f2014">
         <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:7px">
@@ -927,6 +1006,26 @@ function renderCoach(){
           fetchCoaching(buildHandPrompt(h,st),cacheKey).then(t=>{if(t)renderCoach();}).catch(()=>{});
         }
         const aiComment=S.coachCache[cacheKey]||(plog.length>0?'…':'');
+        // Build AI read section: show each AI's cards + actions post-hand (legitimate review)
+        const aiReadRows=(h.ais||[]).map(ai=>{
+          if(!ai.cards||ai.cards.length===0)return'';
+          const aiHand=evalHand([...(ai.cards||[]),...(h.comm||[])]);
+          const acts=(ai.decisionLog||[]);
+          // Infer range hint from betting pattern
+          const hadRaise=acts.some(a=>a.action&&a.action.startsWith('raise'));
+          const hadAllin=acts.some(a=>a.action==='all-in');
+          const allFolded=ai.folded;
+          const betSignal=hadAllin?'🔴 全押':hadRaise?'🟡 曾加注':allFolded?'⚪ 已弃牌':'🟢 跟注/过牌';
+          const cardStr=(ai.cards||[]).map(c=>`<span style="background:#FFFCF0;border-radius:3px;padding:1px 4px;font-size:9px;font-weight:700;color:${RED_SUITS.has(c.suit)?'#C81010':'#111'}">${c.value}${c.suit}</span>`).join('');
+          return`<div style="display:flex;align-items:center;gap:6px;padding:3px 0">
+            <span style="font-size:11px;width:16px;text-align:center">${ai.emoji||'?'}</span>
+            <span style="color:${ai.color||'#888'};font-size:9px;font-weight:700;width:44px;flex-shrink:0">${ai.name}</span>
+            <div style="display:flex;gap:2px">${cardStr}</div>
+            <span style="color:#5a7a64;font-size:9px;margin-left:2px">${aiHand.n}</span>
+            <span style="font-size:9px;margin-left:auto;flex-shrink:0">${betSignal}</span>
+          </div>`;
+        }).filter(Boolean).join('');
+
         return`
         <div style="background:rgba(255,255,255,.02);border:1px solid #0f1f10;border-radius:11px;padding:10px 12px;margin-bottom:8px">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
@@ -940,6 +1039,10 @@ function renderCoach(){
             <span style="color:#3a5a42;font-size:10px">底池 ◈${fmtChips(h.pot||0)}</span>
           </div>
           ${aiComment&&aiComment!=='…'?`<div style="background:rgba(68,180,100,.05);border-left:2px solid rgba(68,180,100,.3);border-radius:0 7px 7px 0;padding:5px 9px;margin-bottom:7px;font-size:10px;color:#6aaa84;line-height:1.55">🤖 ${aiComment}</div>`:aiComment==='…'?`<div style="padding:4px 0 7px;font-size:9px;color:#1e3020">🤖 教练点评加载中…</div>`:''}
+          ${aiReadRows?`<div style="background:rgba(0,0,0,.25);border:1px solid #0a1a0c;border-radius:8px;padding:7px 9px;margin-bottom:7px">
+            <div style="color:#3a5a42;font-size:9px;font-weight:700;letter-spacing:.5px;margin-bottom:5px">📖 牌局揭底 · 对手真实手牌与押注信号</div>
+            ${aiReadRows}
+          </div>`:''}
           ${plog.length===0?`<div style="color:#2a3a2a;font-size:11px;padding:4px 0">本局无决策记录</div>`:
             plog.map(a=>{
               const fb=getActionFeedback(a);
@@ -1115,7 +1218,14 @@ function startHand(){
   const newDealer=(S.dealerPos+1)%6;S.dealerPos=newDealer;
   const sbSeat=(newDealer+1)%6,bbSeat=(newDealer+2)%6;
   const deck=shuffle(fullDeck());let idx=0;
-  const pCards=[deck[idx++],deck[idx++]];
+  // Deal in proper table rotation: starting from SB (dealer+1), going clockwise
+  // Each seat gets 2 cards in order. Player is PLAYER_SEAT=5, AIs are seats 0-4.
+  const holeCards={}; // seat -> [card1, card2]
+  for(let i=0;i<6;i++){
+    const seat=(newDealer+1+i)%6;
+    holeCards[seat]=[deck[idx++],deck[idx++]];
+  }
+  const pCards=holeCards[PLAYER_SEAT];
   const chipMap=Object.fromEntries(S.ais.map(a=>[a.id,a.chips<=0?1500:a.chips]));
   S.ais=AI_CONFIGS.map((cfg,i)=>{
     const isSB=i===sbSeat,isBB=i===bbSeat;
@@ -1123,7 +1233,7 @@ function startHand(){
     let pos=null;if(i===newDealer)pos='D';else if(isSB)pos='SB';else if(isBB)pos='BB';
     // Blind amount clamped to actual chips (prevents negative)
     const blindAmt=isSB?Math.min(SB,prev):isBB?Math.min(BB,prev):0;
-    return{...cfg,chips:prev-blindAmt,bet:blindAmt,totalIn:blindAmt,cards:[deck[idx++],deck[idx++]],folded:false,thinking:false,lastAction:(isSB||isBB)?'blind':null,comment:isSB?`小盲 ${blindAmt}`:isBB?`大盲 ${blindAmt}`:'',showCards:false,pos,decisionLog:[]};
+    return{...cfg,chips:prev-blindAmt,bet:blindAmt,totalIn:blindAmt,cards:holeCards[i],folded:false,thinking:false,lastAction:(isSB||isBB)?'blind':null,comment:isSB?`小盲 ${blindAmt}`:isBB?`大盲 ${blindAmt}`:'',showCards:false,pos,decisionLog:[]};
   });
   let playerPos=null;
   if(PLAYER_SEAT===newDealer)playerPos='D';else if(PLAYER_SEAT===sbSeat)playerPos='SB';else if(PLAYER_SEAT===bbSeat)playerPos='BB';
@@ -1139,11 +1249,7 @@ function startHand(){
   S.playerFolded=false;S.result=null;S.waiting=false;
   S.equity=null;S.outs=null;S.nuts=null;S.betAdvice=null;
   S.tab='analysis';S.currentPlayerPos=playerPos;S.raiseBtnLabel=null;S.aiDetail=null;S.animatedComm=new Set();S.playerCardsDealt=false;S.playerLog=[];
-  // Recalculate actual pot from real blind contributions
-  const sbAmt=S.ais[sbSeat]?.bet??0;
-  const bbAmt=S.ais[bbSeat]?.bet??0;
-  S.pot=(playerIsSB?playerBlind:sbAmt)+(playerIsBB?playerBlind:bbAmt)+(playerIsSB||playerIsBB?0:0);
-  // Actually sum all blind bets
+  // Pot = sum of all blind bets (AIs + player)
   S.pot=S.ais.reduce((sum,a)=>sum+a.bet,0)+playerBlind;
   S.playerBet=playerBlind;S.playerTotalIn=playerBlind;S.curBet=Math.max(BB,S.ais[bbSeat]?.bet??BB);
   S.playerChips=S.playerChips-playerBlind;S.phase='preflop';
@@ -1361,9 +1467,11 @@ function doShowdown(){
 // ═══════════════════════════════════════
 function updateAnalysis(){
   if(S.playerCards.length<2)return;
-  const activeAis=S.ais.filter(a=>!a.folded).length;
-  S.equity=calcEquity(S.playerCards,S.comm,activeAis||1);
+  const activeCount=S.ais.filter(a=>!a.folded).length;
+  // Equity: only uses player cards + community cards, NO AI hole cards (fair simulation)
+  S.equity=calcEquity(S.playerCards,S.comm,activeCount||1,600);
   if(S.comm.length>=3){
+    // Outs/Nuts: also no AI cards - player can't see opponents' hands
     S.outs=calcOuts(S.playerCards,S.comm);
     S.nuts=calcNuts(S.comm);
     const hi=evalHand([...S.playerCards,...S.comm]);
