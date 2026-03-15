@@ -646,12 +646,33 @@ function renderFelt(){
     (()=>{const html=[0,1,2,3,4].map((i,idx)=>`<div class="${S.comm[i]&&!S.animatedComm.has(i)?'deal':''}" style="animation-delay:${idx*.08}s">${cardHTML(S.comm[i]||null,false,'md')}</div>`).join('');S.animatedComm=new Set([0,1,2,3,4].filter(i=>S.comm[i]));return html;})()
   document.getElementById('pot-badge').innerHTML=S.pot>0?
     `<div style="background:rgba(0,0,0,.55);border:1px solid rgba(184,148,58,.35);border-radius:22px;padding:4px 16px;color:#B8943A;font-size:13px;font-weight:800;letter-spacing:.5px">♛ 底池 ${fmtChips(S.pot)}</div>`:'';
-  document.getElementById('result-overlay').innerHTML=S.result?
-    `<div class="pop" style="background:rgba(4,8,5,.93);border:2px solid ${S.result.winner==='player'?'#44CC77':S.result.color||'#FF6655'};border-radius:16px;padding:14px 24px;text-align:center">
-      <div style="font-size:32px;margin-bottom:4px">${S.result.winner==='player'?'🎉':'💀'}</div>
-      <div style="color:${S.result.winner==='player'?'#44CC77':S.result.color||'#FF8866'};font-weight:900;font-size:20px;margin-bottom:4px">${S.result.winner==='player'?'你赢了！':S.result.winner+' 赢了'}</div>
-      <div style="color:#4A6A54;font-size:12px">${S.result.handName} · +${fmtChips(S.result.amount)} 筹码</div>
-    </div>`:'';
+  (()=>{
+    if(!S.result){document.getElementById('result-overlay').innerHTML='';return;}
+    const isWin=S.result.winner==='player';
+    const borderColor=isWin?'#44CC77':S.result.color||'#FF6655';
+    const textColor=isWin?'#44CC77':S.result.color||'#FF8866';
+    // Build hand breakdown: player's best 5 cards + label
+    let handDetail='';
+    if(S.playerCards.length>0&&S.comm.length>0){
+      const allCards=[...S.playerCards,...S.comm];
+      const best=evalHand(allCards);
+      // Find the best 5-card combo
+      const bestCombo=combos(allCards,5).reduce((b,c)=>{const s=score5(c);return s.r>b.r?{r:s.r,cards:c}:b},{r:-1,cards:[]});
+      const comboStr=bestCombo.cards.map(c=>`<span style="display:inline-block;background:#FFFCF0;border-radius:3px;padding:1px 5px;font-size:11px;font-weight:800;color:${RED_SUITS.has(c.suit)?'#C81010':'#111'};margin:0 1px">${c.value}${c.suit}</span>`).join('');
+      handDetail=`<div style="margin-top:7px;display:flex;flex-direction:column;align-items:center;gap:4px">
+        <div style="color:${isWin?'#B8943A':'#6a6a6a'};font-size:13px;font-weight:900;letter-spacing:.5px">${best.n}</div>
+        <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:2px">${comboStr}</div>
+      </div>`;
+    }
+    document.getElementById('result-overlay').innerHTML=
+    `<div class="pop" style="background:rgba(4,8,5,.95);border:2px solid ${borderColor};border-radius:16px;padding:14px 20px;text-align:center;min-width:200px">
+      <div style="font-size:28px;margin-bottom:3px">${isWin?'🎉':'💀'}</div>
+      <div style="color:${textColor};font-weight:900;font-size:19px;margin-bottom:2px">${isWin?'你赢了！':S.result.winner+' 赢了'}</div>
+      <div style="color:#3A5A44;font-size:11px;margin-bottom:2px">+${fmtChips(S.result.amount)} 筹码</div>
+      ${S.result.handName&&S.result.handName!==''&&!isWin?`<div style="color:#5a6a5a;font-size:11px;margin-bottom:4px">${S.result.handName}</div>`:''}
+      ${handDetail}
+    </div>`;
+  })();
   document.getElementById('lobby-msg').style.display=S.phase==='lobby'?'block':'none';
 }
 
