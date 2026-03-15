@@ -370,20 +370,26 @@ function makeAiDecision(ai,comm,pot,curBet){
   if(t===2){if(toCall===0){if(R()<effAgg*.72)return mkRaise(p,pot,curBet,ai.chips,'strong',t,phase,why('两对·下注'));return mkCheck(p,why('两对·诱骗'))}if(R()<effAgg*.48&&phase!=='pre')return mkRaise(p,pot,curBet,ai.chips,'reraise',t,phase,why('两对·反加'));if(potOdds<.38||R()>p.panicFold)return mkCall(toCall,p,'call',why(`两对·跟注·赔率${potOddsPct}%`));return mkFold(p,'fold',why('两对·弃牌'))}
   if(t===1){if(toCall===0){if(R()<p.donkFreq*tm)return mkRaise(p,pot,curBet,ai.chips,'strong',t,phase,why(`donk下注`));if(R()<effAgg*.36)return mkRaise(p,pot,curBet,ai.chips,'strong',t,phase,why('一对·试探'));return mkCheck(p,why('一对·过牌'))}
     const ratio=toCall/Math.max(pot,1);
-    if(ratio>=.7)return mkFold(p,'fold',why('一对·面对大注'));
-    if(ratio>=.4&&R()<p.panicFold+.3)return mkFold(p,'fold',why('一对·跟注过贵'));
+    // Fold probability scales with bet size + persona; base is low for small bets
+    const opTightness=p.panicFold-p.bluffFreq*0.25;
+    const baseFoldProb=Math.min(0.92, ratio*1.2 + Math.max(0,opTightness)*0.4);
+    const foldNoise=R()*0.25-0.12; // ±12% random variance
+    const foldProb=Math.min(0.95,Math.max(0,baseFoldProb+foldNoise));
+    if(R()<foldProb)return mkFold(p,'fold',why(`一对·弃牌 ratio=${ratio.toFixed(2)}`));
     if(seat>=3&&spr>8&&R()<.38)return mkCall(toCall,p,'call',why('一对·浮注'));
-    if(ratio<.25||R()>p.panicFold+.08)return mkCall(toCall,p,'call',why(`一对·跟注`));
-    return mkFold(p,'fold',why('一对·弃牌'));}
+    return mkCall(toCall,p,'call',why(`一对·跟注`));}
   if(toCall===0){const ct=p.cBetFreq*tm*(phase==='flop'?1.0:phase==='turn'?.6:.4);if(R()<ct)return mkRaise(p,pot,curBet,ai.chips,'bluff',t,phase,why(`c-bet`));if(R()<p.donkFreq*tm)return mkRaise(p,pot,curBet,ai.chips,'bluff',t,phase,why('donk蒙'));return mkCheck(p,why('高牌·过牌'))}
-  // High card facing a bet: fold unless very cheap or bluff-catching
+  // High card facing a bet: fold scales with bet size + persona tightness
   const ratio=toCall/Math.max(pot,1);
-  if(ratio>=.5)return mkFold(p,'fold',why('高牌·大注弃牌')); // always fold facing >50% pot
-  if(ratio>=.25&&R()<(1-p.bluffFreq*.6))return mkFold(p,'fold',why('高牌·面对注入'));
+  // Tightness factor: panicFold drives fold tendency, bluffFreq = call-bluff tendency
+  const tightness=p.panicFold-p.bluffFreq*0.3; // gemini=+0.39, grok=-0.09
+  // Fold prob rises with bet size; base is near 0 for tiny bets
+  const hcFoldBase=Math.min(0.95, ratio*1.5 + Math.max(0,tightness)*0.5);
+  const hcFoldProb=Math.min(0.95,Math.max(0, hcFoldBase + R()*0.22-0.11));
   if(phase==='river'&&R()<p.bluffFreq*.5*tm)return mkRaise(p,pot,curBet,ai.chips,'bluff',t,phase,why('河牌蒙'));
   if(tilted&&R()<.35)return mkCall(toCall,p,'call',why('倾斜·跟注'));
-  if(ratio<.12&&R()<.45)return mkCall(toCall,p,'call',why('高牌·跟小注'));
-  return mkFold(p,'fold',why('高牌·弃牌'));
+  if(R()<hcFoldProb)return mkFold(p,'fold',why(`高牌·弃牌 ratio=${ratio.toFixed(2)}`));
+  return mkCall(toCall,p,'call',why('高牌·侥幸跟注'));
 }
 
 // ═══════════════════════════════════════
